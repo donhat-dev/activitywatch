@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "aw-watcher-screenshot-mini"
+version = "0.1.0"
+description = "Portable screenshot watcher PoC for ActivityWatch"
+authors = ["GitHub Copilot <copilot@example.invalid>"]
+license = "MPL-2.0"
+
+[tool.poetry.scripts]
+aw-watcher-screenshot-mini = "aw_watcher_screenshot_mini:main"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+aw-client = "^0.5.14"
+pywin32 = {version = "306", platform = "win32"}
+
+[tool.poetry.dev-dependencies]
+mypy = "*"
+pyinstaller = {version = "^6.6", python = "^3.8,<3.14"}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
