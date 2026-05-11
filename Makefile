@@ -9,13 +9,13 @@
 # Instructions on how to do this can be found in the guide linked above.
 .PHONY: build build-submodules install test clean clean_all package package-win package-bundle-win package-installer-win install-python-modules-win package-watchers-win package-installer-win-quick package-win-no-rust
 
+PYTHON ?= python3
+
 ifeq ($(OS),Windows_NT)
 	HOST_OS := Windows
-	PYTHON ?= python
 else
 	SHELL := /usr/bin/env bash
 	HOST_OS := $(shell uname -s)
-	PYTHON ?= python
 endif
 
 POETRY ?= python -m poetry
@@ -45,11 +45,7 @@ endif
 # A function that checks if a target exists in a Makefile
 # Usage: $(call has_target,<dir>,<target>)
 define has_target
-ifeq ($(OS),Windows_NT)
-$(shell cmd /c "make -q -C $1 $2 >NUL 2>&1 && echo $1 || (if not errorlevel 2 echo $1)" )
-else
-$(shell make -q -C $1 $2 >/dev/null 2>&1; if [ $$? -eq 0 -o $$? -eq 1 ]; then echo $1; fi)
-endif
+$(if $(filter Windows_NT,$(OS)),$(shell cmd /c "make -q -C $1 $2 >NUL 2>&1 && echo $1 || (if not errorlevel 2 echo $1)"),$(shell make -q -C $1 $2 >/dev/null 2>&1; if [ $$? -eq 0 -o $$? -eq 1 ]; then echo $1; fi))
 endef
 
 # Submodules with test/package/lint/typecheck targets
@@ -90,7 +86,7 @@ build: aw-core/.git
 
 ifeq ($(OS),Windows_NT)
 build-submodules:
-	powershell -NoProfile -Command "$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); foreach ($$m in $$mods) { Write-Host \"Building $$m\"; if ($$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" aw-sync \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" } else { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" }; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE } }"
+	powershell -NoProfile -Command "\$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); foreach (\$$m in \$$mods) { Write-Host \"Building \$$m\"; if (\$$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=\$$m\" aw-sync \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" } else { & '$(MAKE)' \"--directory=\$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" }; if (\$$LASTEXITCODE -ne 0) { exit \$$LASTEXITCODE } }"
 else
 build-submodules:
 	@for module in $(SUBMODULES); do \
