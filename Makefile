@@ -18,7 +18,7 @@ else
 	HOST_OS := $(shell uname -s)
 endif
 
-POETRY ?= python -m poetry
+POETRY ?= poetry
 PYINSTALLER ?= python -m PyInstaller
 CUSTOM_WATCHERS ?= aw-watcher-screenshot-mini
 CUSTOM_RUST_WATCHERS ?=
@@ -79,22 +79,22 @@ build: aw-core/.git
 	$(PYTHON) -m pip install "setuptools>49.1.1"
 	$(MAKE) build-submodules SKIP_WEBUI=$(SKIP_WEBUI)
 #   The below is needed due to: https://github.com/ActivityWatch/activitywatch/issues/173
-	$(MAKE) --directory=aw-client build PYTHON=$(PYTHON)
-	$(MAKE) --directory=aw-core build PYTHON=$(PYTHON)
+	$(MAKE) --directory=aw-client build PYTHON=$(PYTHON) POETRY=$(POETRY)
+	$(MAKE) --directory=aw-core build PYTHON=$(PYTHON) POETRY=$(POETRY)
 #	Needed to ensure that the server has the correct version set
 	$(PYTHON) -c "import aw_server; print(aw_server.__version__)"
 
 ifeq ($(OS),Windows_NT)
 build-submodules:
-	powershell -NoProfile -Command "\$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); foreach (\$$m in \$$mods) { Write-Host \"Building \$$m\"; if (\$$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=\$$m\" aw-sync \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" } else { & '$(MAKE)' \"--directory=\$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" }; if (\$$LASTEXITCODE -ne 0) { exit \$$LASTEXITCODE } }"
+	powershell -NoProfile -Command "\$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); foreach (\$$m in \$$mods) { Write-Host \"Building \$$m\"; if (\$$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=\$$m\" aw-sync \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" } else { & '$(MAKE)' \"--directory=\$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" }; if (\$$LASTEXITCODE -ne 0) { exit \$$LASTEXITCODE } }"
 else
 build-submodules:
 	@for module in $(SUBMODULES); do \
 		echo "Building $$module"; \
 		if [ "$$module" = "aw-server-rust" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
-			$(MAKE) --directory=$$module aw-sync SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) || { echo "Error in $$module aw-sync"; exit 2; }; \
+			$(MAKE) --directory=$$module aw-sync SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module aw-sync"; exit 2; }; \
 		else \
-			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) || { echo "Error in $$module build"; exit 2; }; \
+			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module build"; exit 2; }; \
 		fi; \
 	done
 endif
