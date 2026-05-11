@@ -25,7 +25,7 @@ CUSTOM_WATCHERS ?= aw-watcher-screenshot-mini
 CUSTOM_RUST_WATCHERS ?=
 
 ifeq ($(TAURI_BUILD),true)
-	SUBMODULES := aw-core aw-client aw-server aw-server-rust aw-tauri aw-watcher-afk aw-watcher-window
+	SUBMODULES := aw-core aw-client aw-server aw-server-rust aw-tauri aw-watcher-input
 	# Include awatcher on Linux (Wayland-compatible window watcher)
 	ifeq ($(HOST_OS),Linux)
 		SUBMODULES := $(SUBMODULES) awatcher

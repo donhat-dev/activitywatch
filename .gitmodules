@@ -1,12 +1,12 @@
 [submodule "aw-core"]
 	path = aw-core
-	url = https://github.com/ActivityWatch/aw-core.git
+	url = https://github.com/donhat-dev/aw-core.git
 [submodule "aw-client"]
 	path = aw-client
-	url = https://github.com/ActivityWatch/aw-client.git
+	url = https://github.com/donhat-dev/aw-client.git
 [submodule "aw-server"]
 	path = aw-server
-	url = https://github.com/ActivityWatch/aw-server.git
+	url = https://github.com/donhat-dev/aw-server.git
 [submodule "aw-watcher-afk"]
 	path = aw-watcher-afk
 	url = https://github.com/ActivityWatch/aw-watcher-afk.git
