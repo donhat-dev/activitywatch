@@ -1,0 +1,60 @@
+[trigger]
+interval_secs = 300
+
+[capture]
+force_interval_secs = 60
+dhash_threshold = 10
+
+[cache]
+cache_dir = "cache"
+webp_quality = 75
+max_width = 1920
+max_height = 1080
+webp_method = 6
+cleanup_after_hours = 168
+cleanup_every_n_captures = 20
+
+[s3]
+enabled = false
+endpoint = ""
+bucket = ""
+access_key = ""
+secret_key = ""
+region = "auto"
+key_prefix = ""
+
+[aw_server]
+host = "localhost"
+port = 5600
+pulse_time = 60.0
+bucket_id = "aw-watcher-screenshot-mini"
+hostname = ""
+timeout_secs = 60
+sync_enabled = true
+event_type = "os.desktop.screenshot"
+api_path = ""
+
+[odoo]
+enabled = false
+base_url = "https://dev-hrm.lfglobaltech.com"
+pin_code = ""
+token = ""
+api_secret = ""
+sign_requests = true
+employee_id = ""
+device_id = ""
+device_name = ""
+timeout_secs = 10
+push_screenshots = true
+push_metadata_events = false
+
+[logging]
+enabled = true
+dir = ""
+level = "INFO"
+to_stdout = true
+to_file = true
+rotate_when = "midnight"
+rotate_interval = 1
+backup_count = 14
+filename = ""

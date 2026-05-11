@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "aw-odoo-sync"
+version = "0.1.0"
+description = "Central Odoo sync daemon for ActivityWatch"
+authors = ["GitHub Copilot <copilot@example.invalid>"]
+license = "MPL-2.0"
+packages = [
+    { include = "aw_odoo_sync" }
+]
+
+[tool.poetry.scripts]
+aw-odoo-sync = "aw_odoo_sync.__main__:main"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+aw-core = {path = "../aw-core", develop = true}
+aw-client = {path = "../aw-client", develop = true}
+tomli = {version = ">=1.2,<3", python = "<3.11"}
+chardet = ">=3.0.2,<6"
+
+[tool.poetry.dev-dependencies]
+pyinstaller = { version = "^6.6", python = "^3.8,<3.14" }
+mypy = "*"
+black = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

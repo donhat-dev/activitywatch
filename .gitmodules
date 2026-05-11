@@ -31,3 +31,6 @@
 [submodule "aw-notify"]
 	path = aw-notify
 	url = https://github.com/ActivityWatch/aw-notify-rs.git
+[submodule "aw-watcher-screenshot"]
+	path = aw-watcher-screenshot
+	url = https://github.com/InertialG/aw-watcher-screenshot.git

@@ -86,9 +86,8 @@ aw_server_rust_location = Path("aw-server-rust")
 aw_server_rust_bin = aw_server_rust_location / "target/package/aw-server-rust"
 aw_sync_bin = aw_server_rust_location / "target/package/aw-sync"
 aw_qt_location = Path("aw-qt")
-awa_location = Path("aw-watcher-afk")
-aww_location = Path("aw-watcher-window")
 awi_location = Path("aw-watcher-input")
+aw_odoo_sync_location = Path("aw-odoo-sync")
 aw_notify_location = Path("aw-notify")
 
 if platform.system() == "Darwin":
@@ -96,8 +95,10 @@ if platform.system() == "Darwin":
 else:
     icon = aw_qt_location / "media/logo/logo.ico"
 
-skip_rust = False
-if not aw_server_rust_bin.exists():
+skip_rust = os.environ.get("SKIP_SERVER_RUST", "1").strip().lower() in {"1", "true", "yes", "on"}
+if skip_rust:
+    print("Skipping Rust build because SKIP_SERVER_RUST is set.")
+elif not aw_server_rust_bin.exists():
     skip_rust = True
     print("Skipping Rust build because aw-server-rust binary not found.")
 
@@ -121,49 +122,11 @@ aw_server_a = build_analysis(
         (aw_core_path / "schemas", "aw_core/schemas"),
     ],
 )
-aw_watcher_afk_a = build_analysis(
-    "aw_watcher_afk",
-    awa_location,
-    hiddenimports=[
-        "Xlib.keysymdef.miscellany",
-        "Xlib.keysymdef.latin1",
-        "Xlib.keysymdef.latin2",
-        "Xlib.keysymdef.latin3",
-        "Xlib.keysymdef.latin4",
-        "Xlib.keysymdef.greek",
-        "Xlib.support.unix_connect",
-        "Xlib.ext.shape",
-        "Xlib.ext.xinerama",
-        "Xlib.ext.composite",
-        "Xlib.ext.randr",
-        "Xlib.ext.xfixes",
-        "Xlib.ext.security",
-        "Xlib.ext.xinput",
-        "pynput.keyboard._xorg",
-        "pynput.mouse._xorg",
-        "pynput.keyboard._win32",
-        "pynput.mouse._win32",
-        "pynput.keyboard._darwin",
-        "pynput.mouse._darwin",
-    ],
-)
 aw_watcher_input_a = build_analysis("aw_watcher_input", awi_location)
-aw_watcher_window_a = build_analysis(
-    "aw_watcher_window",
-    aww_location,
-    binaries=(
-        [
-            (
-                aww_location / "aw_watcher_window/aw-watcher-window-macos",
-                "aw_watcher_window",
-            )
-        ]
-        if platform.system() == "Darwin"
-        else []
-    ),
-    datas=[
-        (aww_location / "aw_watcher_window/printAppStatus.jxa", "aw_watcher_window")
-    ],
+aw_odoo_sync_a = build_analysis(
+    "aw-odoo-sync",
+    aw_odoo_sync_location,
+    hiddenimports=["charset_normalizer"],
 )
 # Check if aw-notify is a Python package
 _notify_candidates = [
@@ -184,9 +147,8 @@ aw_notify_a = None if skip_aw_notify else build_analysis(
 merge_args = [
     (aw_server_a, "aw-server", "aw-server"),
     (aw_qt_a, "aw-qt", "aw-qt"),
-    (aw_watcher_afk_a, "aw-watcher-afk", "aw-watcher-afk"),
-    (aw_watcher_window_a, "aw-watcher-window", "aw-watcher-window"),
     (aw_watcher_input_a, "aw-watcher-input", "aw-watcher-input"),
+    (aw_odoo_sync_a, "aw-odoo-sync", "aw-odoo-sync"),
 ]
 if aw_notify_a is not None:
     merge_args.append((aw_notify_a, "aw-notify", "aw-notify"))
@@ -196,12 +158,6 @@ MERGE(*merge_args)
 
 # aw-server
 aws_coll = build_collect(aw_server_a, "aw-server")
-
-# aw-watcher-window
-aww_coll = build_collect(aw_watcher_window_a, "aw-watcher-window")
-
-# aw-watcher-afk
-awa_coll = build_collect(aw_watcher_afk_a, "aw-watcher-afk")
 
 # aw-qt
 awq_coll = build_collect(
@@ -213,6 +169,9 @@ awq_coll = build_collect(
 # aw-watcher-input
 awi_coll = build_collect(aw_watcher_input_a, "aw-watcher-input")
 
+# aw-odoo-sync
+aw_odoo_sync_coll = build_collect(aw_odoo_sync_a, "aw-odoo-sync")
+
 # aw-notify (only if Python package exists)
 aw_notify_coll = build_collect(aw_notify_a, "aw-notify") if aw_notify_a is not None else None
 
@@ -220,9 +179,8 @@ if platform.system() == "Darwin":
     bundle_args = [
         awq_coll,
         aws_coll,
-        aww_coll,
-        awa_coll,
         awi_coll,
+        aw_odoo_sync_coll,
     ]
     if aw_notify_coll is not None:
         bundle_args.append(aw_notify_coll)

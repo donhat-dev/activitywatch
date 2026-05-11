@@ -1,13 +1,24 @@
 .PHONY: build test package clean
 
+PYTHON ?= python
+POETRY ?= $(PYTHON) -m poetry
+PYINSTALLER ?= $(PYTHON) -m PyInstaller
+
 build:
-	poetry install
+	$(POETRY) install
 
 test:
-	poetry run aw-watcher-screenshot-mini --help  # Ensures that it at least starts
+	$(POETRY) run aw-watcher-screenshot-mini --help  # Ensures that it at least starts
 
 package:
-	pyinstaller aw-watcher-screenshot-mini.spec --clean --noconfirm
+	$(PYINSTALLER) aw-watcher-screenshot-mini.spec --clean --noconfirm
+	if [ -f "config.toml.example" ]; then \
+		cp config.toml.example dist/aw-watcher-screenshot-mini/config.toml.example; \
+	fi
+	if [ -d "visualization" ]; then \
+		mkdir -p dist/visualization; \
+		cp -r visualization/* dist/visualization; \
+	fi
 
 clean:
 	rm -rf build dist

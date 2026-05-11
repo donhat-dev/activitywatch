@@ -11,7 +11,9 @@ aw-watcher-screenshot-mini = "aw_watcher_screenshot_mini:main"
 [tool.poetry.dependencies]
 python = "^3.8"
 aw-client = "^0.5.14"
+Pillow = "^10.4.0"
 pywin32 = {version = "306", platform = "win32"}
+tomli = {version = ">=1.2,<3", python = "<3.11"}
 
 [tool.poetry.dev-dependencies]
 mypy = "*"

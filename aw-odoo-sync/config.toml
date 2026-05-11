@@ -1,0 +1,23 @@
+[server]
+host = "localhost"
+port = 5600
+bucket_allowlist = ["os.hid.input"]
+poll_interval_secs = 15
+lookback_secs = 604800
+batch_size = 200
+state_file = ""
+
+[odoo]
+enabled = true
+base_url = "http://localhost:8069"
+pin_code = ""
+employee_id = "85"
+device_id = ""
+device_name = ""
+timeout_secs = 10
+push_screenshots = true
+push_metadata_events = false
+
+[screenshot]
+enabled = true
+bucket_ids = ["aw-watcher-screenshot-mini*"]

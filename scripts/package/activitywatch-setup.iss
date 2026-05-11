@@ -5,7 +5,7 @@
 #define MyAppVersion GetEnv('AW_VERSION')
 #define MyAppPublisher "ActivityWatch Contributors"
 #define MyAppURL "https://activitywatch.net/"
-#define MyAppExeName "aw-qt.exe"
+#define MyAppExeName "aw-qt\aw-qt.exe"
 #define RootDir "..\.."
 #define DistDir "..\..\dist"
 
@@ -25,9 +25,7 @@ AppSupportURL="https://github.com/ActivityWatch/activitywatch/issues"
 AppUpdatesURL="https://github.com/ActivityWatch/activitywatch/releases"
 DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
-; Uncomment the following line to run in non administrative install mode (install for current user only.)
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequired=admin
 OutputDir={#DistDir}
 OutputBaseFilename=activitywatch-setup
 SetupIconFile="{#RootDir}\aw-qt\media\logo\logo.ico"
@@ -45,9 +43,21 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "StartMenuEntry" ; Description: "Start ActivityWatch when Windows starts"; GroupDescription: "Windows Startup"; MinVersion: 4,4;
 
 [Files]
-Source: "{#DistDir}\activitywatch\aw-qt.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#DistDir}\activitywatch\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#DistDir}\activitywatch\*"; DestDir: "{app}"; Excludes: "*.log,*.log.*"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
+
+[InstallDelete]
+; Remove old root-level layout (pre-aw-qt subfolder builds)
+Type: filesandordirs; Name: "{app}\aw-watcher-afk"
+Type: filesandordirs; Name: "{app}\aw-watcher-window"
+Type: filesandordirs; Name: "{app}\aw-watcher-screenshot"
+Type: filesandordirs; Name: "{app}\aw_qt"
+Type: filesandordirs; Name: "{app}\aw_server"
+Type: filesandordirs; Name: "{app}\aw-server-rust"
+; Remove disabled watchers from aw-qt subfolder (current layout)
+Type: filesandordirs; Name: "{app}\aw-qt\aw-watcher-afk"
+Type: filesandordirs; Name: "{app}\aw-qt\aw-watcher-window"
+Type: filesandordirs; Name: "{app}\aw-qt\aw-watcher-screenshot"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -55,9 +65,257 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: StartMenuEntry;
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent; Check: ShouldLaunchActivityWatch
 
-; Removes the previously installed version before installing the new one
-; NOTE: Doesn't work? And also discouraged by the docs
-;[InstallDelete]
-;Type: filesandordirs; Name: "{app}\"
+[Code]
+var
+	OdooConfigPage: TInputQueryWizardPage;
+	ShouldLaunchAfterInstall: Boolean;
+
+function IsProcessRunning(FileName: String): Boolean;
+var
+	ResultCode: Integer;
+begin
+	Result := Exec(
+		ExpandConstant('{cmd}'),
+		'/C tasklist /FI "IMAGENAME eq ' + FileName + '" | find /I "' + FileName + '" >NUL',
+		'',
+		SW_HIDE,
+		ewWaitUntilTerminated,
+		ResultCode
+	) and (ResultCode = 0);
+end;
+
+procedure KillProcess(FileName: String);
+var
+	ResultCode: Integer;
+begin
+	Exec(
+		ExpandConstant('{cmd}'),
+		'/C taskkill /F /IM "' + FileName + '" /T >NUL 2>NUL',
+		'',
+		SW_HIDE,
+		ewWaitUntilTerminated,
+		ResultCode
+	);
+end;
+
+function ShouldLaunchActivityWatch(): Boolean;
+begin
+	Result := ShouldLaunchAfterInstall;
+end;
+
+function InitializeSetup(): Boolean;
+var
+	Answer: Integer;
+begin
+	Result := True;
+	ShouldLaunchAfterInstall := True;
+	if IsProcessRunning('aw-qt.exe') or IsProcessRunning('aw-server.exe') or IsProcessRunning('aw-watcher-input.exe') or IsProcessRunning('aw-watcher-screenshot-mini.exe') or IsProcessRunning('aw-odoo-sync.exe') then
+	begin
+		Answer := MsgBox(
+			'ActivityWatch is currently running. Close it automatically before installing?' + #13#10 + #13#10 +
+			'Choose Yes to close ActivityWatch and continue.' + #13#10 +
+			'Choose No to keep it running and continue without launching a new instance after install.' + #13#10 +
+			'Choose Cancel to abort setup.',
+			mbConfirmation,
+			MB_YESNOCANCEL
+		);
+		if Answer = IDCANCEL then
+		begin
+			Result := False;
+			exit;
+		end;
+		if Answer = IDYES then
+		begin
+			KillProcess('aw-qt.exe');
+			KillProcess('aw-server.exe');
+			KillProcess('aw-watcher-input.exe');
+			KillProcess('aw-watcher-screenshot-mini.exe');
+			KillProcess('aw-odoo-sync.exe');
+		end
+		else
+		begin
+			ShouldLaunchAfterInstall := False;
+		end;
+	end;
+end;
+
+function TomlString(Value: String): String;
+begin
+	StringChangeEx(Value, '\', '\\', True);
+	StringChangeEx(Value, '"', '\"', True);
+	Result := '"' + Value + '"';
+end;
+
+function UpsertTomlSection(FilePath: String; SectionName: String; SectionContent: String): Boolean;
+var
+	Lines: TStringList;
+	Output: TStringList;
+	SectionLines: TStringList;
+	InSection: Boolean;
+	Line: String;
+	i: Integer;
+begin
+	Lines := TStringList.Create();
+	Output := TStringList.Create();
+	SectionLines := TStringList.Create();
+	try
+		InSection := False;
+		if FileExists(FilePath) then
+			Lines.LoadFromFile(FilePath)
+		else
+			Lines.Text := '';
+
+		for i := 0 to Lines.Count - 1 do
+		begin
+			Line := Trim(Lines[i]);
+			if (Length(Line) > 0) and (Line[1] = '[') then
+			begin
+				if CompareText(Line, '[' + SectionName + ']') = 0 then
+				begin
+					InSection := True;
+					continue;
+				end
+				else if InSection then
+				begin
+					InSection := False;
+				end;
+			end;
+
+			if not InSection then
+				Output.Add(Lines[i]);
+		end;
+
+		if (Output.Count > 0) and (Trim(Output[Output.Count - 1]) <> '') then
+			Output.Add('');
+
+		SectionLines.Text := SectionContent;
+		Output.AddStrings(SectionLines);
+		Output.SaveToFile(FilePath);
+		Result := True;
+	finally
+		Lines.Free();
+		Output.Free();
+		SectionLines.Free();
+	end;
+end;
+
+procedure InitializeWizard;
+begin
+	OdooConfigPage := CreateInputQueryPage(
+		wpSelectTasks,
+		'Odoo Sync Configuration',
+		'Configure ActivityWatch to sync activity data to Odoo',
+		'Enter the Odoo endpoint and employee identification. The temporary activity tracking API is public and does not require token or secret.'
+	);
+	OdooConfigPage.Add('Odoo URL:', False);
+	OdooConfigPage.Add('PIN code:', False);
+	OdooConfigPage.Add('Employee email (or ID):', False);
+	OdooConfigPage.Values[0] := 'https://dev-hrm.lfglobaltech.com';
+	OdooConfigPage.Values[1] := '';
+	OdooConfigPage.Values[2] := '';
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+	Result := True;
+end;
+
+function BuildOdooSyncConfig: String;
+var
+	EnabledValue: String;
+	EmployeeRef: String;
+begin
+	EnabledValue := 'false';
+	if Trim(OdooConfigPage.Values[0]) <> '' then
+		EnabledValue := 'true';
+
+	EmployeeRef := Trim(OdooConfigPage.Values[2]);
+
+	Result :=
+		'[server]' + #13#10 +
+		'host = "localhost"' + #13#10 +
+		'port = 5600' + #13#10 +
+		'bucket_allowlist = ["os.hid.input"]' + #13#10 +
+		'poll_interval_secs = 15' + #13#10 +
+		'lookback_secs = 604800' + #13#10 +
+		'batch_size = 200' + #13#10 +
+		'state_file = ""' + #13#10 + #13#10 +
+		'[odoo]' + #13#10 +
+		'enabled = ' + EnabledValue + #13#10 +
+		'base_url = ' + TomlString(Trim(OdooConfigPage.Values[0])) + #13#10 +
+		'pin_code = ' + TomlString(Trim(OdooConfigPage.Values[1])) + #13#10 +
+		'employee_id = ' + TomlString(EmployeeRef) + #13#10 +
+		'device_id = ""' + #13#10 +
+		'device_name = ""' + #13#10 +
+		'timeout_secs = 10' + #13#10 +
+		'push_screenshots = true' + #13#10 +
+		'push_metadata_events = false' + #13#10 + #13#10 +
+		'[screenshot]' + #13#10 +
+		'enabled = true' + #13#10 +
+		'bucket_ids = ["aw-watcher-screenshot-mini*"]' + #13#10;
+end;
+
+function BuildScreenshotWatcherConfig: String;
+var
+	EnabledValue: String;
+	EmployeeRef: String;
+begin
+	EnabledValue := 'false';
+	if Trim(OdooConfigPage.Values[0]) <> '' then
+		EnabledValue := 'true';
+
+	EmployeeRef := Trim(OdooConfigPage.Values[2]);
+
+	Result :=
+		'[odoo]' + #13#10 +
+		'enabled = ' + EnabledValue + #13#10 +
+		'base_url = ' + TomlString(Trim(OdooConfigPage.Values[0])) + #13#10 +
+		'pin_code = ' + TomlString(Trim(OdooConfigPage.Values[1])) + #13#10 +
+		'token = ""' + #13#10 +
+		'api_secret = ""' + #13#10 +
+		'sign_requests = true' + #13#10 +
+		'employee_id = ' + TomlString(EmployeeRef) + #13#10 +
+		'device_id = ""' + #13#10 +
+		'device_name = ""' + #13#10 +
+		'timeout_secs = 10' + #13#10 +
+		'push_screenshots = true' + #13#10 +
+		'push_metadata_events = false' + #13#10;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+	ConfigDir: String;
+	ConfigPath: String;
+ 	WatcherConfigDir: String;
+ 	WatcherConfigPath: String;
+begin
+	if CurStep = ssPostInstall then
+	begin
+		ConfigDir := ExpandConstant('{app}\aw-qt\aw-odoo-sync');
+		ConfigPath := ConfigDir + '\config.toml';
+		if DirExists(ConfigDir) then
+		begin
+			if not SaveStringToFile(ConfigPath, BuildOdooSyncConfig, False) then
+				MsgBox('Unable to write Odoo sync config: ' + ConfigPath, mbError, MB_OK);
+		end;
+
+		WatcherConfigDir := ExpandConstant('{localappdata}\activitywatch\activitywatch\aw-watcher-screenshot-mini');
+		WatcherConfigPath := WatcherConfigDir + '\aw-watcher-screenshot-mini.toml';
+		if ForceDirectories(WatcherConfigDir) then
+		begin
+			if not UpsertTomlSection(WatcherConfigPath, 'odoo', BuildScreenshotWatcherConfig) then
+				MsgBox('Unable to write screenshot watcher config: ' + WatcherConfigPath, mbError, MB_OK);
+		end
+		else
+		begin
+			MsgBox('Unable to create watcher config directory: ' + WatcherConfigDir, mbError, MB_OK);
+		end;
+	end;
+end;
+
+// Removes the previously installed version before installing the new one
+// NOTE: Doesn't work? And also discouraged by the docs
+//[InstallDelete]
+//Type: filesandordirs; Name: "{app}\"

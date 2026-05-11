@@ -1,0 +1,49 @@
+[trigger]
+interval_secs = 5
+timeout_secs = 3600
+
+[capture]
+force_interval_secs = 5
+dhash_threshold = 10
+
+[cache]
+cache_dir = "cache"
+webp_quality = 75
+max_width = 1920
+max_height = 1080
+webp_method = 6
+cleanup_after_hours = 168
+cleanup_every_n_captures = 20
+
+[s3]
+enabled = false
+endpoint = ""
+bucket = ""
+access_key = ""
+secret_key = ""
+region = "auto"
+key_prefix = ""
+
+[aw_server]
+host = "localhost"
+port = 5600
+pulse_time = 60.0
+bucket_id = "aw-watcher-screenshot-mini"
+hostname = ""
+timeout_secs = 60
+sync_enabled = true
+event_type = "os.desktop.screenshot"
+api_path = ""
+
+[odoo]
+enabled = true
+base_url = "http://localhost:8069"
+token = "ff914bde-b9aa-4499-b16f-e9c6554964b0"
+api_secret = "hKVzpwmhoXxdv9W9nde-ZZL9ajNKA8dn5B1tqZDzCDQ"
+sign_requests = true
+employee_id = 85
+device_id = ""
+device_name = ""
+timeout_secs = 10
+push_screenshots = true
+push_metadata_events = true
