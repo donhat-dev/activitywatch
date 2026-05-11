@@ -13,6 +13,7 @@ PYTHON ?= python3
 
 ifeq ($(OS),Windows_NT)
 	HOST_OS := Windows
+	SHELL := bash
 else
 	SHELL := /usr/bin/env bash
 	HOST_OS := $(shell uname -s)
@@ -149,11 +150,7 @@ uninstall:
 test:
 	@for module in $(TESTABLES); do \
 		echo "Running tests for $$module"; \
-		if [ -f "$$module/pyproject.toml" ]; then \
-			(cd $$module && poetry run make test) || { echo "Error in $$module tests"; exit 2; }; \
-		else \
-			make -C $$module test || { echo "Error in $$module tests"; exit 2; }; \
-		fi; \
+		$(MAKE) -C $$module test POETRY=$(POETRY) || { echo "Error in $$module tests"; exit 2; }; \
 	done
 
 test-integration:
