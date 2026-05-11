@@ -7,7 +7,7 @@
 #
 # We recommend creating and activating a Python virtualenv before building.
 # Instructions on how to do this can be found in the guide linked above.
-.PHONY: build build-submodules install test clean clean_all package package-win package-bundle-win package-installer-win install-python-modules-win package-watchers-win package-installer-win-quick package-win-no-rust
+.PHONY: build build-submodules install test clean clean_all package package-win package-bundle-win package-installer-win install-python-modules-win package-watchers-win package-installer-win-quick package-win-no-rust package-dmg-unsigned
 
 PYTHON ?= python3
 
@@ -41,6 +41,10 @@ endif
 # Include extras if AW_EXTRAS is true
 ifeq ($(AW_EXTRAS),true)
 	SUBMODULES := $(SUBMODULES) aw-notify aw-watcher-input aw-odoo-sync
+endif
+# Exclude aw-notify (Rust) when SKIP_SERVER_RUST is true
+ifeq ($(SKIP_SERVER_RUST),true)
+	SUBMODULES := $(filter-out aw-notify,$(SUBMODULES))
 endif
 
 # A function that checks if a target exists in a Makefile
@@ -97,6 +101,10 @@ build-submodules:
 		else \
 			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module build"; exit 2; }; \
 		fi; \
+	done
+	@for module in $(CUSTOM_WATCHERS); do \
+		echo "Building custom watcher $$module"; \
+		$(MAKE) --directory=$$module build PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module build"; exit 2; }; \
 	done
 endif
 
@@ -203,6 +211,12 @@ dist/ActivityWatch.dmg: dist/ActivityWatch.app
 
 dist/notarize:
 	./scripts/notarize.sh
+
+package-dmg-unsigned: dist/ActivityWatch.dmg
+	$(eval VERSION := $(shell scripts/package/getversion.sh))
+	$(eval ARCH := $(shell uname -m))
+	mv dist/ActivityWatch.dmg dist/activitywatch-$(VERSION)-macos-$(ARCH)-unsigned.dmg
+	@echo "Built unsigned DMG: dist/activitywatch-$(VERSION)-macos-$(ARCH)-unsigned.dmg"
 
 ifeq ($(OS),Windows_NT)
 package: package-win

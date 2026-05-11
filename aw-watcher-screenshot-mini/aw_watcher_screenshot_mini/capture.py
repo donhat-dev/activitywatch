@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,6 +28,8 @@ class ScreenshotTransientError(ScreenshotCaptureError):
 def capture_screenshot(output_path: Path) -> str:
     if os.name == "nt":
         return _capture_windows(output_path)
+    if platform.system() == "Darwin":
+        return _capture_macos(output_path)
     return _capture_unix(output_path)
 
 
@@ -34,9 +37,29 @@ def capture_screenshots(output_dir: Path, timestamp: str) -> Tuple[str, Dict[str
     if os.name == "nt":
         return _capture_windows_all(output_dir, timestamp)
 
+    if platform.system() == "Darwin":
+        single = output_dir / f"screenshot-{timestamp}.png"
+        backend = _capture_macos(single)
+        return backend, {"display-0": single}
+
     single = output_dir / f"screenshot-{timestamp}.bmp"
     backend = _capture_unix(single)
     return backend, {"display-0": single}
+
+
+def _capture_macos(output_path: Path) -> str:
+    try:
+        subprocess.run(
+            ["screencapture", "-x", "-t", "png", str(output_path)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+    except Exception as exc:
+        raise ScreenshotCaptureError(f"macOS screencapture failed: {exc}") from exc
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise ScreenshotCaptureError("screencapture produced no output")
+    return "screencapture"
 
 
 def _capture_unix(output_path: Path) -> str:

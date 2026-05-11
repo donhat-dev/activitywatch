@@ -1,29 +1,35 @@
 # -*- mode: python -*-
 
+import platform
 import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
-hiddenimports = collect_submodules('PIL') + [
-    'charset_normalizer',
-    'win32api',
-    'win32con',
-    'win32gui',
-    'win32ui',
-    'win32timezone',
-    'pywintypes',
-]
+hiddenimports = collect_submodules('PIL') + ['charset_normalizer']
+
+if platform.system() == 'Windows':
+    hiddenimports += [
+        'win32api',
+        'win32con',
+        'win32gui',
+        'win32ui',
+        'win32timezone',
+        'pywintypes',
+    ]
+
 datas = collect_data_files('PIL', include_py_files=True)
 
-# Explicitly bundle pywintypes/pythoncom DLLs required by win32gui/win32ui
-_pywin32_sys = Path(sys.exec_prefix) / 'Lib/site-packages/pywin32_system32'
-_pywin32_binaries = [
-    (str(dll), 'pywin32_system32')
-    for dll in _pywin32_sys.glob('*.dll')
-    if dll.exists()
-]
+# Explicitly bundle pywintypes/pythoncom DLLs required by win32gui/win32ui (Windows only)
+_pywin32_binaries = []
+if platform.system() == 'Windows':
+    _pywin32_sys = Path(sys.exec_prefix) / 'Lib/site-packages/pywin32_system32'
+    _pywin32_binaries = [
+        (str(dll), 'pywin32_system32')
+        for dll in _pywin32_sys.glob('*.dll')
+        if dll.exists()
+    ]
 
 a = Analysis(['aw_watcher_screenshot_mini/__main__.py'],
              pathex=[],

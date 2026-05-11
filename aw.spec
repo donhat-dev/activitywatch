@@ -88,6 +88,7 @@ aw_sync_bin = aw_server_rust_location / "target/package/aw-sync"
 aw_qt_location = Path("aw-qt")
 awi_location = Path("aw-watcher-input")
 aw_odoo_sync_location = Path("aw-odoo-sync")
+aw_screenshot_mini_location = Path("aw-watcher-screenshot-mini")
 aw_notify_location = Path("aw-notify")
 
 if platform.system() == "Darwin":
@@ -128,6 +129,11 @@ aw_odoo_sync_a = build_analysis(
     aw_odoo_sync_location,
     hiddenimports=["charset_normalizer"],
 )
+aw_screenshot_mini_a = build_analysis(
+    "aw_watcher_screenshot_mini",
+    aw_screenshot_mini_location,
+    hiddenimports=["charset_normalizer"],
+)
 # Check if aw-notify is a Python package
 _notify_candidates = [
     aw_notify_location / "aw_notify/__main__.py",
@@ -149,6 +155,7 @@ merge_args = [
     (aw_qt_a, "aw-qt", "aw-qt"),
     (aw_watcher_input_a, "aw-watcher-input", "aw-watcher-input"),
     (aw_odoo_sync_a, "aw-odoo-sync", "aw-odoo-sync"),
+    (aw_screenshot_mini_a, "aw-watcher-screenshot-mini", "aw-watcher-screenshot-mini"),
 ]
 if aw_notify_a is not None:
     merge_args.append((aw_notify_a, "aw-notify", "aw-notify"))
@@ -172,6 +179,9 @@ awi_coll = build_collect(aw_watcher_input_a, "aw-watcher-input")
 # aw-odoo-sync
 aw_odoo_sync_coll = build_collect(aw_odoo_sync_a, "aw-odoo-sync")
 
+# aw-watcher-screenshot-mini
+aw_screenshot_mini_coll = build_collect(aw_screenshot_mini_a, "aw-watcher-screenshot-mini")
+
 # aw-notify (only if Python package exists)
 aw_notify_coll = build_collect(aw_notify_a, "aw-notify") if aw_notify_a is not None else None
 
@@ -181,6 +191,7 @@ if platform.system() == "Darwin":
         aws_coll,
         awi_coll,
         aw_odoo_sync_coll,
+        aw_screenshot_mini_coll,
     ]
     if aw_notify_coll is not None:
         bundle_args.append(aw_notify_coll)

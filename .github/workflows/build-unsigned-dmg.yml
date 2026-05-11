@@ -1,0 +1,90 @@
+name: Build Unsigned DMG (Internal Test)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch or tag to build from'
+        required: false
+        default: 'master'
+
+jobs:
+  build-dmg:
+    name: Build unsigned DMG for internal testing
+    runs-on: macos-latest
+    env:
+      AW_EXTRAS: true
+      MACOSX_DEPLOYMENT_TARGET: 10.9
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        submodules: 'recursive'
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.9'
+
+    - name: Set up Node
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@master
+      id: toolchain
+      with:
+        toolchain: stable
+
+    - name: Cache node_modules
+      uses: actions/cache@v5
+      with:
+        path: aw-server-rust/aw-webui/node_modules
+        key: macos-latest-node_modules-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          macos-latest-node_modules-
+
+    - name: Cache cargo build
+      uses: actions/cache@v5
+      env:
+        cache-name: cargo-build-target
+      with:
+        path: aw-server-rust/target
+        key: macos-latest-${{ env.cache-name }}-${{ steps.toolchain.outputs.cachekey }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          macos-latest-${{ env.cache-name }}-${{ steps.toolchain.outputs.rustc_hash }}-
+
+    - name: Install dependencies
+      run: pip3 install poetry==1.4.2
+
+    - name: Build
+      run: |
+        python3 -m venv venv
+        source venv/bin/activate
+        poetry install
+        make build
+
+    - name: Package
+      run: |
+        source venv/bin/activate
+        poetry install
+        make package
+
+    - name: Build unsigned DMG
+      run: |
+        source venv/bin/activate
+        make package-dmg-unsigned
+
+    - name: Get artifact name
+      id: artifact_name
+      run: echo "name=$(ls dist/activitywatch-*-unsigned.dmg | head -1 | xargs basename)" >> "$GITHUB_OUTPUT"
+
+    - name: Upload unsigned DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.artifact_name.outputs.name }}
+        path: dist/activitywatch-*-unsigned.dmg
+        retention-days: 30
