@@ -45,7 +45,8 @@ employee_id = ""
 device_id = ""
 device_name = ""
 timeout_secs = 10
-push_screenshots = true
+# aw-odoo-sync owns all Odoo uploads in bundled ActivityWatch builds.
+push_screenshots = false
 push_metadata_events = false
 
 [logging]

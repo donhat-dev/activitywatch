@@ -7,7 +7,7 @@
 #
 # We recommend creating and activating a Python virtualenv before building.
 # Instructions on how to do this can be found in the guide linked above.
-.PHONY: build build-submodules install test clean clean_all package package-win package-bundle-win package-installer-win install-python-modules-win package-watchers-win package-installer-win-quick package-win-no-rust package-dmg-unsigned
+.PHONY: build build-submodules install-tauri-python-modules install test clean clean_all package package-win package-bundle-win package-installer-win install-python-modules-win package-watchers-win package-installer-win-quick package-win-no-rust package-dmg-unsigned
 
 PYTHON ?= python3
 
@@ -20,7 +20,7 @@ else
 endif
 
 POETRY ?= poetry
-PYINSTALLER ?= python -m PyInstaller
+PYINSTALLER ?= $(PYTHON) -m PyInstaller
 include tauri-watchers.mk
 CUSTOM_WATCHERS ?= aw-watcher-screenshot-mini
 CUSTOM_RUST_WATCHERS ?=
@@ -67,7 +67,7 @@ TYPECHECKABLES := $(foreach dir,$(SUBMODULES),$(call has_target,$(dir),typecheck
 # When building with Tauri, aw-server-rust is built as aw-sync only (not full server),
 # so exclude it from the standard package target
 ifeq ($(TAURI_BUILD),true)
-	PACKAGEABLES := $(filter-out aw-server-rust aw-server $(TAURI_WATCHERS), $(PACKAGEABLES))
+	PACKAGEABLES := $(filter-out aw-server-rust aw-server aw-tauri $(TAURI_WATCHERS), $(PACKAGEABLES))
 endif
 
 # Build mode: release vs debug
@@ -87,12 +87,19 @@ build: aw-core/.git
 #	needed due to https://github.com/pypa/setuptools/issues/1963
 #	would ordinarily be specified in pyproject.toml, but is not respected due to https://github.com/pypa/setuptools/issues/1963
 	$(PYTHON) -m pip install "setuptools>49.1.1"
+ifeq ($(TAURI_BUILD),true)
+	$(MAKE) install-tauri-python-modules PYTHON=$(PYTHON)
+endif
 	$(MAKE) build-submodules SKIP_WEBUI=$(SKIP_WEBUI)
 #   The below is needed due to: https://github.com/ActivityWatch/activitywatch/issues/173
 	$(MAKE) --directory=aw-client build PYTHON=$(PYTHON) POETRY=$(POETRY)
 	$(MAKE) --directory=aw-core build PYTHON=$(PYTHON) POETRY=$(POETRY)
 #	Needed to ensure that the server has the correct version set
 	$(PYTHON) -c "import aw_server; print(aw_server.__version__)"
+
+install-tauri-python-modules: aw-core/.git aw-client/.git
+	$(PYTHON) -m pip install -e ./aw-core -e ./aw-client
+	$(PYTHON) -c "import aw_client.odoo_config; print('aw_client.odoo_config import OK')"
 
 ifeq ($(OS),Windows_NT)
 build-submodules:
@@ -104,12 +111,13 @@ build-submodules:
 		if [ "$$module" = "aw-server-rust" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
 			$(MAKE) --directory=$$module aw-sync SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module aw-sync"; exit 2; }; \
 		elif [ "$$module" = "aw-tauri" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
-			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" || { echo "Error in $$module build"; exit 2; }; \
+			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" TAURI_BUNDLES="$(TAURI_BUNDLES)" || { echo "Error in $$module build"; exit 2; }; \
 		else \
 			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module build"; exit 2; }; \
 		fi; \
 		if [ "$(TAURI_BUILD)" = "true" ] && echo " $(TAURI_WATCHERS) " | grep -q " $$module "; then \
 			echo "Packaging $$module for Tauri"; \
+			$(MAKE) install-tauri-python-modules PYTHON=$(PYTHON) || { echo "Error refreshing local Python modules before packaging $$module"; exit 2; }; \
 			$(MAKE) --directory=$$module package PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module package"; exit 2; }; \
 		fi; \
 	done
@@ -285,19 +293,25 @@ else
 package:
 	rm -rf dist
 	mkdir -p dist/activitywatch
+ifeq ($(TAURI_BUILD),true)
+	$(MAKE) install-tauri-python-modules PYTHON=$(PYTHON)
+endif
 	for dir in $(PACKAGEABLES); do \
-		make --directory=$$dir package; \
+		$(MAKE) --directory=$$dir package PYTHON=$(PYTHON) POETRY=$(POETRY); \
 		cp -r $$dir/dist/$$dir dist/activitywatch; \
 	done
 ifeq ($(TAURI_BUILD),true)
 # Package Tauri-managed watchers into dist/activitywatch for macOS app bundling.
 	for dir in $(TAURI_WATCHERS); do \
-		make --directory=$$dir package; \
+		$(MAKE) install-tauri-python-modules PYTHON=$(PYTHON) || { echo "Error refreshing local Python modules before packaging $$dir"; exit 2; }; \
+		$(MAKE) --directory=$$dir package PYTHON=$(PYTHON) POETRY=$(POETRY); \
 		cp -r $$dir/dist/$$dir dist/activitywatch; \
 	done
 # Copy aw-sync binary for Tauri builds
 	mkdir -p dist/activitywatch/aw-server-rust
 	cp aw-server-rust/target/$(targetdir)/aw-sync dist/activitywatch/aw-server-rust/aw-sync
+# Copy aw-tauri binary for macOS app bundling (build_app_tauri.sh expects a file, not a dir)
+	cp aw-tauri/src-tauri/target/$(targetdir)/aw-tauri dist/activitywatch/aw-tauri
 else
 # Move aw-qt to the root of the dist folder
 	mv dist/activitywatch/aw-qt aw-qt-tmp

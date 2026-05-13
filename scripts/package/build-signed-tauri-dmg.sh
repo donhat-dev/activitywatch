@@ -49,6 +49,19 @@ if [[ "$(uname)" != "Darwin" ]]; then
     exit 1
 fi
 
+# Add rustup cargo to PATH if not already present
+if ! command -v cargo &>/dev/null; then
+    if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+fi
+if ! command -v cargo &>/dev/null; then
+    echo "ERROR: cargo (Rust) not found."
+    echo "       Install via: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    echo "       Then restart your terminal and re-run this script."
+    exit 1
+fi
+
 if [[ -f "$ROOT/.env" ]]; then
     set -a
     # shellcheck disable=SC1091
@@ -110,7 +123,8 @@ if [[ "$SKIP_BUILD" == false ]]; then
         source "venv/bin/activate"
     fi
 
-    rm -rf "$APP" "$RAW_DMG" "$SIGNED_DMG" "$APP_ZIP" dist/activitywatch-*-macos-*.dmg
+    rm -rf "$APP" "$RAW_DMG" "$SIGNED_DMG" "$APP_ZIP" dist/activitywatch dist/activitywatch-*-macos-*.dmg
+    TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" TAURI_BUNDLES=app make build
     TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" make dist/ActivityWatch.app
 else
     echo ""

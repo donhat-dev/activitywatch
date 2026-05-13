@@ -92,7 +92,7 @@ class ServerConfig:
     host: str = "localhost"
     port: int = 5600
     bucket_allowlist: List[str] = field(default_factory=lambda: ["os.hid.input"])
-    poll_interval_secs: float = 15.0
+    poll_interval_secs: float = 10.0
     lookback_secs: int = 300
     batch_size: int = 200
     state_file: str = ""

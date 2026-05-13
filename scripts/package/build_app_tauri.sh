@@ -134,6 +134,8 @@ cat > "dist/${APP_NAME}.app/Contents/Info.plist" << EOF
     <string>${VERSION}</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>ActivityWatch needs access to monitor application usage</string>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>ActivityWatch needs Input Monitoring to collect local keyboard and mouse activity events.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSPrincipalClass</key>

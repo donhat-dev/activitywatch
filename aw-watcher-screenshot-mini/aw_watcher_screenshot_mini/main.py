@@ -6,7 +6,6 @@ import os
 import signal
 import socket
 import sys
-from dataclasses import asdict
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,7 +13,7 @@ from time import sleep
 from typing import Any, Dict, List, Optional
 
 from aw_client import ActivityWatchClient
-from aw_client.odoo_config import apply_global_odoo_config
+from aw_client.odoo_config import ODOO_TRACKING_CONTEXT_SETTING
 from aw_core.dirs import get_log_dir
 from aw_core.models import Event
 
@@ -22,7 +21,6 @@ from PIL import Image
 
 from .capture import ScreenshotTransientError, capture_screenshots, load_image
 from .config import DEFAULT_CLIENT_NAME, DEFAULT_EVENT_TYPE, AppConfig, LoggingConfig, parse_args
-from .odoo_client import OdooActivityTrackingClient, OdooPushConfig
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +122,21 @@ def _mask_secret(value: Optional[str], visible: int = 4) -> str:
     return "*" * (len(value) - visible) + value[-visible:]
 
 
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _log_startup_config(config: AppConfig, log_path: Optional[Path]) -> None:
     logger.info("Watcher config path: %s", config.config_path or "<default>")
     if log_path:
@@ -167,7 +180,7 @@ def _log_startup_config(config: AppConfig, log_path: Optional[Path]) -> None:
         config.cache.cleanup_every_n_captures,
     )
     logger.info(
-        "Odoo: enabled=%s base_url=%s pin_code=%s token=%s api_secret=%s sign_requests=%s employee_id=%s device_id=%s device_name=%s timeout_secs=%s push_screenshots=%s push_metadata_events=%s",
+        "Odoo direct push config (unused; aw-odoo-sync owns Odoo sync): enabled=%s base_url=%s pin_code=%s token=%s api_secret=%s sign_requests=%s employee_id=%s device_id=%s device_name=%s timeout_secs=%s push_screenshots=%s push_metadata_events=%s",
         config.odoo.enabled,
         config.odoo.base_url,
         _mask_secret(config.odoo.pin_code),
@@ -208,10 +221,6 @@ class ScreenshotWatcher:
         self.last_capture_error: Optional[str] = None
         self.last_remote_config: Optional[Dict[str, Any]] = None
         self._warned_remote_unavailable = False
-        self.odoo_client = OdooActivityTrackingClient(
-            OdooPushConfig(**vars(config.odoo)),
-            agent_version="aw-watcher-screenshot-mini/0.1.0",
-        )
 
     def run(self) -> None:
         logger.info("Starting screenshot watcher")
@@ -224,9 +233,6 @@ class ScreenshotWatcher:
         except Exception:
             logger.exception("Unable to connect to aw-server or create screenshot bucket; watcher will stop")
             return
-
-        self._refresh_odoo_config()
-        self.odoo_client.start()
 
         with self.client:
             while self.running:
@@ -244,7 +250,6 @@ class ScreenshotWatcher:
                 self._sleep_with_heartbeat(slot_duration, send_heartbeat=True)
 
         logger.info("Watcher stopped")
-        self.odoo_client.stop()
 
     def _handle_stop(self, *_args) -> None:
         logger.info("Stop signal received")
@@ -256,7 +261,6 @@ class ScreenshotWatcher:
             if event is not None:
                 self._mark_capture_recovered()
                 self.enqueue_heartbeat(event)
-                self.odoo_client.push_screenshot_event(event.data, tracking_context=tracking_context)
                 image_count = event.data.get("image_count", 0)
                 first_path = None
                 images = event.data.get("images", [])
@@ -282,7 +286,6 @@ class ScreenshotWatcher:
             logger.exception("Capture loop iteration failed")
 
     def _get_tracking_config(self) -> Dict[str, Any]:
-        self._refresh_odoo_config()
         fallback_cycle_secs = max(float(self.config.trigger.interval_secs or 60.0), 1.0)
         fallback = {
             "is_tracking": False,
@@ -297,19 +300,15 @@ class ScreenshotWatcher:
             "screenshot_per_cycle": 1,
             "cycle_time_secs": fallback_cycle_secs,
         }
-        if not self.odoo_client.enabled:
-            logger.warning("Odoo sync disabled; using fallback tracking config")
-            return fallback
-
-        remote = self.odoo_client.get_tracking_config()
-        if not remote:
+        remote = self._load_published_tracking_context()
+        if remote is None:
             if not self._warned_remote_unavailable:
-                logger.warning("Remote tracking config unavailable; using fallback config")
+                logger.warning("Local Odoo tracking context unavailable; using fallback config")
                 self._warned_remote_unavailable = True
             return fallback
 
         if self._warned_remote_unavailable:
-            logger.info("Remote tracking config available again")
+            logger.info("Local Odoo tracking context available again")
             self._warned_remote_unavailable = False
 
         screenshot_per_cycle = int(remote.get("screenshot_per_cycle") or 0)
@@ -338,26 +337,30 @@ class ScreenshotWatcher:
         }
 
         if self.last_remote_config != resolved:
-            logger.info("Remote tracking config in use: %s", resolved)
+            logger.info("Local Odoo tracking context in use: %s", resolved)
             self.last_remote_config = dict(resolved)
 
         return resolved
 
-    def _refresh_odoo_config(self) -> None:
-        changed = apply_global_odoo_config(
-            self.config.odoo,
-            self.client,
-            logger=logger,
-            source=DEFAULT_CLIENT_NAME,
-        )
-        if not changed:
-            return
-        self.odoo_client.stop()
-        self.odoo_client = OdooActivityTrackingClient(
-            OdooPushConfig(**asdict(self.config.odoo)),
-            agent_version="aw-watcher-screenshot-mini/0.1.0",
-        )
-        self.odoo_client.start()
+    def _load_published_tracking_context(self) -> Optional[Dict[str, Any]]:
+        try:
+            payload = self.client.get_setting(ODOO_TRACKING_CONTEXT_SETTING)
+        except Exception as exc:
+            logger.debug("Unable to read local Odoo tracking context: %s", exc)
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        updated_at = _parse_datetime(payload.get("updated_at"))
+        if updated_at is None:
+            return None
+        max_age_secs = max(_IDLE_POLL_SECS * 3, 45.0)
+        if datetime.now(timezone.utc) - updated_at > timedelta(seconds=max_age_secs):
+            logger.debug("Local Odoo tracking context is stale: %s", updated_at.isoformat())
+            return None
+
+        data = payload.get("data")
+        return data if isinstance(data, dict) else None
 
     def _sleep_with_heartbeat(self, total_secs: float, send_heartbeat: bool) -> None:
         if total_secs <= 0:
@@ -365,7 +368,6 @@ class ScreenshotWatcher:
         tick = self._heartbeat_tick_secs()
         remaining = total_secs
         while remaining > 0 and self.running:
-            self._refresh_odoo_config()
             sleep_time = min(tick, remaining)
             if send_heartbeat:
                 self.enqueue_last_heartbeat()

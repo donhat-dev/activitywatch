@@ -64,7 +64,7 @@ employee_id = ""
 device_id = ""
 device_name = ""
 timeout_secs = 10
-push_screenshots = true
+push_screenshots = false
 push_metadata_events = false
 
 [logging]
@@ -139,8 +139,8 @@ class OdooConfig:
     device_id: str = socket.gethostname()
     device_name: str = ""
     timeout_secs: float = 10.0
-    push_screenshots: bool = True
-    push_metadata_events: bool = True
+    push_screenshots: bool = False
+    push_metadata_events: bool = False
 
 
 @dataclass

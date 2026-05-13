@@ -1,8 +1,10 @@
 [server]
 host = "localhost"
 port = 5600
+# Event types eligible for Odoo bucket-event sync.
 bucket_allowlist = ["os.hid.input"]
-poll_interval_secs = 15
+# Also controls how often Odoo tracking state is refreshed.
+poll_interval_secs = 10
 lookback_secs = 300
 batch_size = 200
 state_file = ""
