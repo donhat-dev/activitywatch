@@ -7,12 +7,14 @@ import logging
 import socket
 import ssl
 import urllib.error
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
 from uuid import uuid4
+
+from .config import default_odoo_base_url, default_odoo_token
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +22,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OdooPushConfig:
     enabled: bool = False
-    base_url: str = "http://localhost:8069"
+    base_url: str = field(default_factory=default_odoo_base_url)
     pin_code: str = ""
-    token: str = ""
+    token: str = field(default_factory=default_odoo_token)
     employee_id: str = ""
     device_id: str = ""
     device_name: str = ""
@@ -35,7 +37,8 @@ class OdooActivityTrackingClient:
     def __init__(self, config: OdooPushConfig, agent_version: str = "0.1.0") -> None:
         self.config = config
         self.agent_version = agent_version
-        self.base_url = (config.base_url or "http://localhost:8069").rstrip("/")
+        default_base_url = default_odoo_base_url()
+        self.base_url = (config.base_url or default_base_url).rstrip("/")
         self.hostname = socket.gethostname()
         self.device_id = config.device_id or self.hostname
         self._warned_disabled = False
