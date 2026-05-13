@@ -9,6 +9,7 @@ from time import sleep
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from aw_client import ActivityWatchClient
+from aw_client.odoo_config import apply_global_odoo_config
 from aw_core.models import Event
 
 from .config import AppConfig, resolve_state_path
@@ -94,6 +95,7 @@ class ActivityWatchOdooSyncService:
         logger.info("Starting aw-odoo-sync")
         self.client.wait_for_start()
         self.client.connect()
+        self._refresh_odoo_config()
         self.odoo_client.start()
         try:
             while self.running:
@@ -104,6 +106,7 @@ class ActivityWatchOdooSyncService:
             self.state.save()
 
     def sync_once(self) -> None:
+        self._refresh_odoo_config()
         self.last_tracking_context = self.odoo_client.get_tracking_config()
         buckets = self.client.get_buckets()
         for bucket_id, bucket in buckets.items():
@@ -225,6 +228,22 @@ class ActivityWatchOdooSyncService:
             if bucket_id.startswith(prefix):
                 return mapped_type
         return ""
+
+    def _refresh_odoo_config(self) -> None:
+        changed = apply_global_odoo_config(
+            self.config.odoo,
+            self.client,
+            logger=logger,
+            source="aw-odoo-sync",
+        )
+        if not changed:
+            return
+        self.odoo_client.stop()
+        self.odoo_client = OdooActivityTrackingClient(
+            OdooPushConfig(**asdict(self.config.odoo)),
+            agent_version="aw-odoo-sync/0.1.0",
+        )
+        self.odoo_client.start()
 
 
 def _bucket_matches(pattern: str, bucket_type: str) -> bool:

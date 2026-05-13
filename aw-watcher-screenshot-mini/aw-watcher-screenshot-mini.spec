@@ -3,11 +3,12 @@
 import platform
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
 
-hiddenimports = collect_submodules('PIL') + ['charset_normalizer']
+pil_datas, pil_binaries, pil_hiddenimports = collect_all('PIL')
+hiddenimports = pil_hiddenimports + collect_submodules('PIL') + ['charset_normalizer']
 
 if platform.system() == 'Windows':
     hiddenimports += [
@@ -19,7 +20,7 @@ if platform.system() == 'Windows':
         'pywintypes',
     ]
 
-datas = collect_data_files('PIL', include_py_files=True)
+datas = pil_datas
 
 # Explicitly bundle pywintypes/pythoncom DLLs required by win32gui/win32ui (Windows only)
 _pywin32_binaries = []
@@ -33,7 +34,7 @@ if platform.system() == 'Windows':
 
 a = Analysis(['aw_watcher_screenshot_mini/__main__.py'],
              pathex=[],
-             binaries=_pywin32_binaries,
+             binaries=pil_binaries + _pywin32_binaries,
              datas=datas,
              hiddenimports=hiddenimports,
              hookspath=[],

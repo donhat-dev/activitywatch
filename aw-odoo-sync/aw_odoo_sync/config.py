@@ -29,6 +29,7 @@ class OdooConfig:
     enabled: bool = False
     base_url: str = "http://localhost:8069"
     pin_code: str = ""
+    token: str = ""
     employee_id: str = ""
     device_id: str = ""
     device_name: str = ""

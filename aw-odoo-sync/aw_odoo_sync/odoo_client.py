@@ -22,6 +22,7 @@ class OdooPushConfig:
     enabled: bool = False
     base_url: str = "http://localhost:8069"
     pin_code: str = ""
+    token: str = ""
     employee_id: str = ""
     device_id: str = ""
     device_name: str = ""
@@ -162,6 +163,8 @@ class OdooActivityTrackingClient:
         body = dict(payload)
         if self.config.pin_code:
             body["pin_code"] = self.config.pin_code
+        if self.config.token:
+            body["token"] = self.config.token
         if self.config.employee_id:
             body["employee_id"] = str(self.config.employee_id)
         body_bytes = json.dumps(body, default=str).encode("utf-8")

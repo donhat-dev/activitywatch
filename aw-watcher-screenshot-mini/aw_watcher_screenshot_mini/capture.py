@@ -49,16 +49,27 @@ def capture_screenshots(output_dir: Path, timestamp: str) -> Tuple[str, Dict[str
 
 def _capture_macos(output_path: Path) -> str:
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["screencapture", "-x", "-t", "png", str(output_path)],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            text=True,
         )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip() or f"exit code {exc.returncode}"
+        raise ScreenshotCaptureError(
+            "macOS screencapture failed: "
+            f"{detail}. Screen Recording permission may be required for ActivityWatch."
+        ) from exc
     except Exception as exc:
         raise ScreenshotCaptureError(f"macOS screencapture failed: {exc}") from exc
     if not output_path.exists() or output_path.stat().st_size == 0:
-        raise ScreenshotCaptureError("screencapture produced no output")
+        detail = (result.stderr or "").strip()
+        raise ScreenshotCaptureError(
+            "screencapture produced no output"
+            + (f": {detail}" if detail else "; Screen Recording permission may be required for ActivityWatch")
+        )
     return "screencapture"
 
 

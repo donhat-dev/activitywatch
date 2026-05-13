@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 import sys
+from dataclasses import asdict
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ from time import sleep
 from typing import Any, Dict, List, Optional
 
 from aw_client import ActivityWatchClient
+from aw_client.odoo_config import apply_global_odoo_config
 from aw_core.dirs import get_log_dir
 from aw_core.models import Event
 
@@ -28,6 +30,12 @@ _IDLE_POLL_SECS = 30.0
 
 
 def _default_log_dir() -> Path:
+    env_log_dir = os.getenv("AW_LOG_DIR")
+    if env_log_dir:
+        return Path(env_log_dir).expanduser()
+    env_log_root = os.getenv("AW_LOG_ROOT")
+    if env_log_root:
+        return Path(env_log_root).expanduser() / DEFAULT_CLIENT_NAME
     if getattr(sys, "frozen", False):
         return Path(get_log_dir(DEFAULT_CLIENT_NAME))
     return Path(get_log_dir(DEFAULT_CLIENT_NAME))
@@ -217,6 +225,7 @@ class ScreenshotWatcher:
             logger.exception("Unable to connect to aw-server or create screenshot bucket; watcher will stop")
             return
 
+        self._refresh_odoo_config()
         self.odoo_client.start()
 
         with self.client:
@@ -273,6 +282,7 @@ class ScreenshotWatcher:
             logger.exception("Capture loop iteration failed")
 
     def _get_tracking_config(self) -> Dict[str, Any]:
+        self._refresh_odoo_config()
         fallback_cycle_secs = max(float(self.config.trigger.interval_secs or 60.0), 1.0)
         fallback = {
             "is_tracking": False,
@@ -333,12 +343,29 @@ class ScreenshotWatcher:
 
         return resolved
 
+    def _refresh_odoo_config(self) -> None:
+        changed = apply_global_odoo_config(
+            self.config.odoo,
+            self.client,
+            logger=logger,
+            source=DEFAULT_CLIENT_NAME,
+        )
+        if not changed:
+            return
+        self.odoo_client.stop()
+        self.odoo_client = OdooActivityTrackingClient(
+            OdooPushConfig(**asdict(self.config.odoo)),
+            agent_version="aw-watcher-screenshot-mini/0.1.0",
+        )
+        self.odoo_client.start()
+
     def _sleep_with_heartbeat(self, total_secs: float, send_heartbeat: bool) -> None:
         if total_secs <= 0:
             return
         tick = self._heartbeat_tick_secs()
         remaining = total_secs
         while remaining > 0 and self.running:
+            self._refresh_odoo_config()
             sleep_time = min(tick, remaining)
             if send_heartbeat:
                 self.enqueue_last_heartbeat()

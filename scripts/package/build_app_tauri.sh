@@ -8,6 +8,7 @@ APP_NAME="ActivityWatch"
 BUNDLE_ID="net.activitywatch.ActivityWatch"
 VERSION="0.1.0"
 ICON_PATH="aw-tauri/src-tauri/icons/icon.icns"
+TAURI_WATCHERS="${TAURI_WATCHERS:-aw-watcher-input aw-watcher-screenshot-mini aw-odoo-sync}"
 
 if [[ "$(uname)" != "Darwin" ]]; then
     echo "This script is designed to run on macOS only."
@@ -21,6 +22,18 @@ fi
 
 if [ ! -f "dist/activitywatch/aw-tauri" ]; then
     echo "Error: aw-tauri binary not found in dist/activitywatch/"
+    exit 1
+fi
+
+for watcher in $TAURI_WATCHERS; do
+    if [ ! -d "dist/activitywatch/$watcher" ]; then
+        echo "Error: $watcher bundle not found in dist/activitywatch/"
+        exit 1
+    fi
+done
+
+if [ ! -f "dist/activitywatch/aw-server-rust/aw-sync" ]; then
+    echo "Error: aw-sync binary not found in dist/activitywatch/aw-server-rust/"
     exit 1
 fi
 

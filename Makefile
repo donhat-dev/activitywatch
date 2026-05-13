@@ -21,11 +21,12 @@ endif
 
 POETRY ?= poetry
 PYINSTALLER ?= python -m PyInstaller
+include tauri-watchers.mk
 CUSTOM_WATCHERS ?= aw-watcher-screenshot-mini
 CUSTOM_RUST_WATCHERS ?=
 
 ifeq ($(TAURI_BUILD),true)
-	SUBMODULES := aw-core aw-client aw-server aw-server-rust aw-tauri aw-watcher-input
+	SUBMODULES := aw-core aw-client aw-server aw-server-rust $(TAURI_WATCHERS) aw-tauri
 	# Include awatcher on Linux (Wayland-compatible window watcher)
 	ifeq ($(HOST_OS),Linux)
 		SUBMODULES := $(SUBMODULES) awatcher
@@ -40,7 +41,11 @@ ifeq ($(SKIP_SERVER_RUST),true)
 endif
 # Include extras if AW_EXTRAS is true
 ifeq ($(AW_EXTRAS),true)
-	SUBMODULES := $(SUBMODULES) aw-notify aw-watcher-input aw-odoo-sync
+	ifeq ($(TAURI_BUILD),true)
+		SUBMODULES := $(SUBMODULES) aw-notify
+	else
+		SUBMODULES := $(SUBMODULES) aw-notify aw-watcher-input aw-odoo-sync
+	endif
 endif
 # Exclude aw-notify (Rust) when SKIP_SERVER_RUST is true
 ifeq ($(SKIP_SERVER_RUST),true)
@@ -62,7 +67,7 @@ TYPECHECKABLES := $(foreach dir,$(SUBMODULES),$(call has_target,$(dir),typecheck
 # When building with Tauri, aw-server-rust is built as aw-sync only (not full server),
 # so exclude it from the standard package target
 ifeq ($(TAURI_BUILD),true)
-	PACKAGEABLES := $(filter-out aw-server-rust aw-server, $(PACKAGEABLES))
+	PACKAGEABLES := $(filter-out aw-server-rust aw-server $(TAURI_WATCHERS), $(PACKAGEABLES))
 endif
 
 # Build mode: release vs debug
@@ -91,21 +96,29 @@ build: aw-core/.git
 
 ifeq ($(OS),Windows_NT)
 build-submodules:
-	powershell -NoProfile -Command "\$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); foreach (\$$m in \$$mods) { Write-Host \"Building \$$m\"; if (\$$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=\$$m\" aw-sync \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" } else { & '$(MAKE)' \"--directory=\$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" }; if (\$$LASTEXITCODE -ne 0) { exit \$$LASTEXITCODE } }"
+	powershell -NoProfile -Command "$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); $$tauriWatchers = @{}; '$(TAURI_WATCHERS)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $$tauriWatchers[$$_] = $$true }; foreach ($$m in $$mods) { Write-Host \"Building $$m\"; if ($$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" aw-sync \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" } elseif ($$m -eq 'aw-tauri' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" \"TAURI_WATCHERS=$(TAURI_WATCHERS)\" } else { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" }; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; if ('$(TAURI_BUILD)' -eq 'true' -and $$tauriWatchers.ContainsKey($$m)) { Write-Host \"Packaging $$m for Tauri\"; & '$(MAKE)' \"--directory=$$m\" package \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\"; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE } } }"
 else
 build-submodules:
 	@for module in $(SUBMODULES); do \
 		echo "Building $$module"; \
 		if [ "$$module" = "aw-server-rust" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
 			$(MAKE) --directory=$$module aw-sync SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module aw-sync"; exit 2; }; \
+		elif [ "$$module" = "aw-tauri" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
+			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" || { echo "Error in $$module build"; exit 2; }; \
 		else \
 			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module build"; exit 2; }; \
 		fi; \
+		if [ "$(TAURI_BUILD)" = "true" ] && echo " $(TAURI_WATCHERS) " | grep -q " $$module "; then \
+			echo "Packaging $$module for Tauri"; \
+			$(MAKE) --directory=$$module package PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module package"; exit 2; }; \
+		fi; \
 	done
+ifneq ($(TAURI_BUILD),true)
 	@for module in $(CUSTOM_WATCHERS); do \
 		echo "Building custom watcher $$module"; \
 		$(MAKE) --directory=$$module build PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module build"; exit 2; }; \
 	done
+endif
 endif
 
 
@@ -197,10 +210,14 @@ aw-qt/media/logo/logo.icns:
 	rm -R build/MyIcon.iconset
 	mv build/MyIcon.icns aw-qt/media/logo/logo.icns
 
-dist/ActivityWatch.app: aw-qt/media/logo/logo.icns
 ifeq ($(TAURI_BUILD),true)
-	scripts/package/build_app_tauri.sh
+dist/activitywatch/aw-tauri:
+	$(MAKE) package TAURI_BUILD=true
+
+dist/ActivityWatch.app: aw-qt/media/logo/logo.icns dist/activitywatch/aw-tauri
+	TAURI_WATCHERS="$(TAURI_WATCHERS)" scripts/package/build_app_tauri.sh
 else
+dist/ActivityWatch.app: aw-qt/media/logo/logo.icns
 	$(PYINSTALLER) --clean --noconfirm aw.spec
 endif
 
@@ -273,6 +290,11 @@ package:
 		cp -r $$dir/dist/$$dir dist/activitywatch; \
 	done
 ifeq ($(TAURI_BUILD),true)
+# Package Tauri-managed watchers into dist/activitywatch for macOS app bundling.
+	for dir in $(TAURI_WATCHERS); do \
+		make --directory=$$dir package; \
+		cp -r $$dir/dist/$$dir dist/activitywatch; \
+	done
 # Copy aw-sync binary for Tauri builds
 	mkdir -p dist/activitywatch/aw-server-rust
 	cp aw-server-rust/target/$(targetdir)/aw-sync dist/activitywatch/aw-server-rust/aw-sync

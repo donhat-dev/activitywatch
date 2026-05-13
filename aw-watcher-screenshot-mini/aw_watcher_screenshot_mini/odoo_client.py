@@ -157,7 +157,14 @@ class OdooActivityTrackingClient:
                 "metadata": {**image, "odoo_context": context_payload} if context_payload else image,
             }
             payload.update(context_payload)
-            self._post("/api/v1/activity_tracking/attachments", payload)
+            result = self._post("/api/v1/activity_tracking/attachments", payload)
+            if result is None:
+                logger.warning("Odoo screenshot upload returned no response for %s", path.name)
+                continue
+            if isinstance(result, dict) and result.get("success") is False:
+                logger.warning("Odoo screenshot upload was rejected for %s: %s", path.name, result)
+                continue
+            logger.info("Uploaded screenshot attachment to Odoo: %s", path.name)
 
     def get_tracking_config(self) -> Optional[Dict[str, Any]]:
         if not self.enabled:
@@ -182,7 +189,8 @@ class OdooActivityTrackingClient:
         body = dict(payload)
         if self.config.pin_code:
             body["pin_code"] = self.config.pin_code
-        body["token"] = self.config.token
+        if self.config.token:
+            body["token"] = self.config.token
         if self.config.employee_id:
             body["employee_id"] = self.config.employee_id
         if self.config.sign_requests and self.config.api_secret:

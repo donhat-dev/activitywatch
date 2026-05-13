@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 def _default_log_dir() -> Path:
+    env_log_dir = os.getenv("AW_LOG_DIR")
+    if env_log_dir:
+        return Path(env_log_dir).expanduser()
+    env_log_root = os.getenv("AW_LOG_ROOT")
+    if env_log_root:
+        return Path(env_log_root).expanduser() / "aw-odoo-sync"
     if getattr(sys, "frozen", False):
         return Path(get_log_dir("aw-odoo-sync"))
     return Path(get_log_dir("aw-odoo-sync"))
