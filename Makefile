@@ -312,13 +312,15 @@ ifeq ($(TAURI_BUILD),true)
 	cp aw-server-rust/target/$(targetdir)/aw-sync dist/activitywatch/aw-server-rust/aw-sync
 # Copy aw-tauri binary for macOS app bundling (build_app_tauri.sh expects a file, not a dir).
 # Some Tauri bundle modes leave the executable only inside the generated .app bundle.
-	if [ -f aw-tauri/src-tauri/target/$(targetdir)/aw-tauri ]; then \
-		cp aw-tauri/src-tauri/target/$(targetdir)/aw-tauri dist/activitywatch/aw-tauri; \
-	elif [ -f aw-tauri/src-tauri/target/$(targetdir)/bundle/macos/ActivityWatch.app/Contents/MacOS/aw-tauri ]; then \
-		cp aw-tauri/src-tauri/target/$(targetdir)/bundle/macos/ActivityWatch.app/Contents/MacOS/aw-tauri dist/activitywatch/aw-tauri; \
+	if ! find aw-tauri/src-tauri/target/$(targetdir) -path "*/Contents/MacOS/aw-tauri" -o -path "*/target/$(targetdir)/aw-tauri" 2>/dev/null | grep -q .; then \
+		$(MAKE) --directory=aw-tauri build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" TAURI_BUNDLES="$(TAURI_BUNDLES)"; \
+	fi; \
+	aw_tauri_bin="$$(find aw-tauri/src-tauri/target/$(targetdir) \( -path "*/Contents/MacOS/aw-tauri" -o -path "*/target/$(targetdir)/aw-tauri" \) -type f -perm -111 2>/dev/null | head -1)"; \
+	if [ -n "$$aw_tauri_bin" ]; then \
+		cp "$$aw_tauri_bin" dist/activitywatch/aw-tauri; \
 	else \
-		echo "Error: aw-tauri binary not found in target/$(targetdir) or bundle/macos/ActivityWatch.app"; \
-		find aw-tauri/src-tauri/target/$(targetdir) -maxdepth 5 -type f -perm -111 -print 2>/dev/null || true; \
+		echo "Error: aw-tauri binary not found after build"; \
+		find aw-tauri/src-tauri/target -maxdepth 8 -type f -perm -111 -print 2>/dev/null || true; \
 		exit 2; \
 	fi
 else
