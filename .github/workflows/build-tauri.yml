@@ -188,7 +188,7 @@ jobs:
           fi
 
           source venv/bin/activate
-          PYTHON=python scripts/package/build-signed-tauri-dmg.sh --skip-project-build
+          PYTHON=python bash scripts/package/build-signed-tauri-dmg.sh --skip-project-build
         env:
           APPLE_EMAIL: ${{ secrets.APPLE_EMAIL }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
