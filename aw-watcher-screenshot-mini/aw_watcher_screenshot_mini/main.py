@@ -13,7 +13,10 @@ from time import sleep
 from typing import Any, Dict, List, Optional
 
 from aw_client import ActivityWatchClient
-from aw_client.odoo_config import ODOO_TRACKING_CONTEXT_SETTING
+try:
+    from aw_client.odoo_config import ODOO_TRACKING_CONTEXT_SETTING
+except ImportError:
+    ODOO_TRACKING_CONTEXT_SETTING = "odoo_tracking_context"
 from aw_core.dirs import get_log_dir
 from aw_core.models import Event
 

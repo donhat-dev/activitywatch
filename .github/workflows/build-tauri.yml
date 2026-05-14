@@ -109,14 +109,30 @@ jobs:
           shell: bash
           command: |
             python -m venv venv
-            source venv/bin/activate || source venv/Scripts/activate
+            if [ -f venv/bin/activate ]; then
+              source venv/bin/activate
+            elif [ -f venv/Scripts/activate ]; then
+              source venv/Scripts/activate
+            else
+              echo "::error::Could not find virtualenv activation script"
+              find venv -maxdepth 3 -type f -name activate -print
+              exit 1
+            fi
             poetry install
             make build PYTHON=python SKIP_WEBUI=${{ matrix.skip_webui }} SKIP_SERVER_RUST=${{ matrix.skip_rust }}
             pip freeze
 
       - name: Install test dependencies
         run: |
-          source venv/bin/activate || source venv/Scripts/activate
+          if [ -f venv/bin/activate ]; then
+            source venv/bin/activate
+          elif [ -f venv/Scripts/activate ]; then
+            source venv/Scripts/activate
+          else
+            echo "::error::Could not find virtualenv activation script"
+            find venv -maxdepth 3 -type f -name activate -print
+            exit 1
+          fi
           python -m pip install -e ./aw-core -e ./aw-client -e ./aw-server pytest-flask
           python -c "import flask, flask_restx, flask_cors, aw_server; print('aw-server test dependencies OK')"
 
@@ -127,12 +143,28 @@ jobs:
           max_attempts: 3
           shell: bash
           command: |
-            source venv/bin/activate || source venv/Scripts/activate
+            if [ -f venv/bin/activate ]; then
+              source venv/bin/activate
+            elif [ -f venv/Scripts/activate ]; then
+              source venv/Scripts/activate
+            else
+              echo "::error::Could not find virtualenv activation script"
+              find venv -maxdepth 3 -type f -name activate -print
+              exit 1
+            fi
             make test PYTHON=python SKIP_SERVER_RUST=${{ matrix.skip_rust }}
 
       - name: Package
         run: |
-          source venv/bin/activate || source venv/Scripts/activate
+          if [ -f venv/bin/activate ]; then
+            source venv/bin/activate
+          elif [ -f venv/Scripts/activate ]; then
+            source venv/Scripts/activate
+          else
+            echo "::error::Could not find virtualenv activation script"
+            find venv -maxdepth 3 -type f -name activate -print
+            exit 1
+          fi
           poetry install
           make package PYTHON=python SKIP_SERVER_RUST=${{ matrix.skip_rust }}
 

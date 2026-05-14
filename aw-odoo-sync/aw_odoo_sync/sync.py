@@ -9,7 +9,11 @@ from time import sleep
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from aw_client import ActivityWatchClient
-from aw_client.odoo_config import ODOO_TRACKING_CONTEXT_SETTING, apply_global_odoo_config
+from aw_client.odoo_config import apply_global_odoo_config
+try:
+    from aw_client.odoo_config import ODOO_TRACKING_CONTEXT_SETTING
+except ImportError:
+    ODOO_TRACKING_CONTEXT_SETTING = "odoo_tracking_context"
 from aw_core.models import Event
 
 from .config import AppConfig, resolve_state_path
@@ -257,7 +261,7 @@ class ActivityWatchOdooSyncService:
             "data": tracking_context,
         }
         try:
-            self.client.set_setting(ODOO_TRACKING_CONTEXT_SETTING, payload)
+            self.client.set_setting(ODOO_TRACKING_CONTEXT_SETTING, payload)  # type: ignore[arg-type]
         except Exception as exc:
             logger.debug("Unable to publish local Odoo tracking context: %s", exc)
 
