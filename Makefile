@@ -310,8 +310,17 @@ ifeq ($(TAURI_BUILD),true)
 # Copy aw-sync binary for Tauri builds
 	mkdir -p dist/activitywatch/aw-server-rust
 	cp aw-server-rust/target/$(targetdir)/aw-sync dist/activitywatch/aw-server-rust/aw-sync
-# Copy aw-tauri binary for macOS app bundling (build_app_tauri.sh expects a file, not a dir)
-	cp aw-tauri/src-tauri/target/$(targetdir)/aw-tauri dist/activitywatch/aw-tauri
+# Copy aw-tauri binary for macOS app bundling (build_app_tauri.sh expects a file, not a dir).
+# Some Tauri bundle modes leave the executable only inside the generated .app bundle.
+	if [ -f aw-tauri/src-tauri/target/$(targetdir)/aw-tauri ]; then \
+		cp aw-tauri/src-tauri/target/$(targetdir)/aw-tauri dist/activitywatch/aw-tauri; \
+	elif [ -f aw-tauri/src-tauri/target/$(targetdir)/bundle/macos/ActivityWatch.app/Contents/MacOS/aw-tauri ]; then \
+		cp aw-tauri/src-tauri/target/$(targetdir)/bundle/macos/ActivityWatch.app/Contents/MacOS/aw-tauri dist/activitywatch/aw-tauri; \
+	else \
+		echo "Error: aw-tauri binary not found in target/$(targetdir) or bundle/macos/ActivityWatch.app"; \
+		find aw-tauri/src-tauri/target/$(targetdir) -maxdepth 5 -type f -perm -111 -print 2>/dev/null || true; \
+		exit 2; \
+	fi
 else
 # Move aw-qt to the root of the dist folder
 	mv dist/activitywatch/aw-qt aw-qt-tmp
