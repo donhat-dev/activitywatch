@@ -20,7 +20,7 @@ jobs:
       TAURI_BUILD: true
       TAURI_WATCHERS: aw-watcher-input aw-watcher-screenshot-mini aw-odoo-sync
       TAURI_LOAD_ENV_FILE: false
-      TAURI_SIGN: auto
+      TAURI_SIGN: true
       TAURI_NOTARIZE: auto
       # Temporary CI switch. Set to "true" to re-enable test steps for Tauri builds.
       TAURI_RUN_TESTS: false
@@ -183,9 +183,14 @@ jobs:
       - name: Package dmg
         if: runner.os == 'macOS'
         run: |
-          if [ -n "$CERTIFICATE_MACOS_P12_BASE64" ]; then
-            ./scripts/ci/import-macos-p12.sh
+          missing=()
+          [ -n "$CERTIFICATE_MACOS_P12_BASE64" ] || missing+=("CERTIFICATE_MACOS_P12_BASE64")
+          [ -n "$CERTIFICATE_MACOS_P12_PASSWORD" ] || missing+=("CERTIFICATE_MACOS_P12_PASSWORD")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required macOS signing secrets: ${missing[*]}"
+            exit 1
           fi
+          ./scripts/ci/import-macos-p12.sh
 
           source venv/bin/activate
           PYTHON=python bash scripts/package/build-signed-tauri-dmg.sh --skip-project-build
