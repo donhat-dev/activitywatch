@@ -14,13 +14,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
     env:
-      # Whether to build and include extras (like aw-notify and aw-watcher-input)
-      AW_EXTRAS: true
+      # Keep optional extras out of the Tauri CI package; TAURI_WATCHERS below owns
+      # the watcher set needed by the desktop bundle.
+      AW_EXTRAS: false
       TAURI_BUILD: true
+      TAURI_WATCHERS: aw-watcher-input aw-watcher-screenshot-mini aw-odoo-sync
+      TAURI_SIGN: auto
+      TAURI_NOTARIZE: auto
       # Temporary CI switch. Set to "true" to re-enable test steps for Tauri builds.
       TAURI_RUN_TESTS: false
-      # sets the macOS version target, see: https://users.rust-lang.org/t/compile-rust-binary-for-older-versions-of-mac-osx/38695
-      MACOSX_DEPLOYMENT_TARGET: 10.9
+      # Match the minimum macOS version declared in scripts/package/build_app_tauri.sh.
+      MACOSX_DEPLOYMENT_TARGET: 10.14
     defaults:
       run:
         shell: bash
@@ -34,7 +38,7 @@ jobs:
             macos-latest,
           ]
         python_version: [3.9]
-        node_version: [22]
+        node_version: [24]
         skip_rust: [false]
         skip_webui: [false]
         experimental: [false]
@@ -49,6 +53,10 @@ jobs:
         run: |
           echo "RELEASE=${{ startsWith(github.ref_name, 'v') || github.ref_name == 'master' }}" >> $GITHUB_ENV
           echo "TAURI_BUILD=true" >> $GITHUB_ENV
+          echo "TAURI_WATCHERS=${TAURI_WATCHERS}" >> $GITHUB_ENV
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "TAURI_BUNDLES=app" >> $GITHUB_ENV
+          fi
 
       - name: Set tag metadata
         if: startsWith(github.ref, 'refs/tags/v')
@@ -175,27 +183,16 @@ jobs:
       - name: Package dmg
         if: runner.os == 'macOS'
         run: |
-          if [ -n "$APPLE_EMAIL" ]; then
+          if [ -n "$CERTIFICATE_MACOS_P12_BASE64" ]; then
             ./scripts/ci/import-macos-p12.sh
           fi
 
           source venv/bin/activate
-          make dist/ActivityWatch.dmg PYTHON=python
-
-          if [ -n "$APPLE_EMAIL" ]; then
-            codesign --force --verbose --timestamp -s ${APPLE_PERSONALID} dist/ActivityWatch.dmg
-
-            brew install akeru-inc/tap/xcnotary
-            xcnotary precheck dist/ActivityWatch.app
-            xcnotary precheck dist/ActivityWatch.dmg
-
-            make dist/notarize PYTHON=python
-          fi
-          mv dist/ActivityWatch.dmg dist/activitywatch-tauri-${VERSION_TAG:-$(scripts/package/getversion.sh)}-macos-$(uname -m).dmg
+          PYTHON=python scripts/package/build-signed-tauri-dmg.sh --skip-project-build
         env:
           APPLE_EMAIL: ${{ secrets.APPLE_EMAIL }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_PERSONALID: ${{ secrets.APPLE_TEAMID }}
+          APPLE_PERSONALID: ${{ secrets.APPLE_PERSONALID }}
           APPLE_TEAMID: ${{ secrets.APPLE_TEAMID }}
           CERTIFICATE_MACOS_P12_BASE64: ${{ secrets.CERTIFICATE_MACOS_P12_BASE64 }}
           CERTIFICATE_MACOS_P12_PASSWORD: ${{ secrets.CERTIFICATE_MACOS_P12_PASSWORD }}

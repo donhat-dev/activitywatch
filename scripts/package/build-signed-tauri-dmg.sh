@@ -4,6 +4,7 @@
 # Usage:
 #   scripts/package/build-signed-tauri-dmg.sh
 #   scripts/package/build-signed-tauri-dmg.sh --skip-build
+#   scripts/package/build-signed-tauri-dmg.sh --skip-project-build
 #   scripts/package/build-signed-tauri-dmg.sh --skip-notarize
 #
 # Required for notarization:
@@ -16,6 +17,10 @@
 #                    Developer ID Application identity and falls back to Apple
 #                    Development for internal builds.
 #   TAURI_WATCHERS   Space-separated watcher list. Defaults to the Tauri watcher set.
+#   TAURI_SIGN       auto, true, or false. Defaults to auto.
+#   TAURI_NOTARIZE   auto, true, or false. Defaults to auto. "auto" skips
+#                    notarization when signing credentials are incomplete.
+#   TAURI_SKIP_NOTARIZE=true is also accepted for compatibility.
 
 set -euo pipefail
 
@@ -24,17 +29,21 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
 
 SKIP_BUILD=false
-SKIP_NOTARIZE=false
+SKIP_PROJECT_BUILD=false
+SKIP_NOTARIZE_REQUESTED=false
 for arg in "$@"; do
     case "$arg" in
         --skip-build)
             SKIP_BUILD=true
             ;;
+        --skip-project-build)
+            SKIP_PROJECT_BUILD=true
+            ;;
         --skip-notarize)
-            SKIP_NOTARIZE=true
+            SKIP_NOTARIZE_REQUESTED=true
             ;;
         -h|--help)
-            sed -n '1,22p' "$0"
+            sed -n '1,27p' "$0"
             exit 0
             ;;
         *)
@@ -71,6 +80,7 @@ if [[ -f "$ROOT/.env" ]]; then
 fi
 
 TAURI_WATCHERS="${TAURI_WATCHERS:-aw-watcher-input aw-watcher-screenshot-mini aw-odoo-sync}"
+PYTHON="${PYTHON:-python}"
 VERSION="$(LC_ALL=C LANG=C bash scripts/package/getversion.sh 2>/dev/null || echo "dev")"
 ARCH="$(uname -m)"
 APP="dist/ActivityWatch.app"
@@ -79,35 +89,111 @@ SIGNED_DMG="dist/activitywatch-tauri-${VERSION}-macos-${ARCH}.dmg"
 APP_ZIP="dist/ActivityWatch.app.zip"
 KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-activitywatch-tauri-notarize}"
 
-if [[ -z "${APPLE_PERSONALID:-}" ]]; then
+normalize_mode() {
+    local value
+    value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+    case "$value" in
+        auto|"")
+            echo "auto"
+            ;;
+        1|true|yes|on)
+            echo "true"
+            ;;
+        0|false|no|off)
+            echo "false"
+            ;;
+        *)
+            echo "ERROR: $2 must be one of: auto, true, false" >&2
+            exit 1
+            ;;
+    esac
+}
+
+TAURI_SIGN_MODE="$(normalize_mode "${TAURI_SIGN:-auto}" "TAURI_SIGN")"
+TAURI_NOTARIZE_MODE="$(normalize_mode "${TAURI_NOTARIZE:-auto}" "TAURI_NOTARIZE")"
+if [[ "$SKIP_NOTARIZE_REQUESTED" == true ]] || [[ "$(normalize_mode "${TAURI_SKIP_NOTARIZE:-false}" "TAURI_SKIP_NOTARIZE")" == "true" ]]; then
+    TAURI_NOTARIZE_MODE=false
+fi
+
+SIGN_ARTIFACTS=false
+IDENTITY_KIND="none"
+if [[ "$TAURI_SIGN_MODE" != "false" && -z "${APPLE_PERSONALID:-}" ]]; then
     all_certs="$(security find-identity -v -p codesigning 2>/dev/null || true)"
     cert_line="$(echo "$all_certs" | grep "Developer ID Application" | head -1 || true)"
+    IDENTITY_KIND="developer-id"
     if [[ -z "$cert_line" && -n "${APPLE_TEAMID:-}" ]]; then
         cert_line="$(echo "$all_certs" | grep "Apple Development" | grep "$APPLE_TEAMID" | head -1 || true)"
         if [[ -n "$cert_line" ]]; then
-            echo "[warn] Using Apple Development identity; notarization will be skipped."
-            SKIP_NOTARIZE=true
+            echo "[warn] Using Apple Development identity; notarization is not available for this build."
+            IDENTITY_KIND="apple-development"
         fi
     fi
-    if [[ -z "$cert_line" ]]; then
-        echo "ERROR: no codesigning identity found. Install a Developer ID Application certificate or set APPLE_PERSONALID."
-        exit 1
+    if [[ -n "$cert_line" ]]; then
+        APPLE_PERSONALID="$(echo "$cert_line" | sed 's/.*"\(.*\)"/\1/')"
     fi
-    APPLE_PERSONALID="$(echo "$cert_line" | sed 's/.*"\(.*\)"/\1/')"
+elif [[ "$TAURI_SIGN_MODE" != "false" && -n "${APPLE_PERSONALID:-}" ]]; then
+    IDENTITY_KIND="configured"
 fi
-export APPLE_PERSONALID
+
+if [[ "$TAURI_SIGN_MODE" != "false" && -n "${APPLE_PERSONALID:-}" ]]; then
+    SIGN_ARTIFACTS=true
+    export APPLE_PERSONALID
+else
+    unset APPLE_PERSONALID
+fi
+
+if [[ "$TAURI_SIGN_MODE" == "true" && "$SIGN_ARTIFACTS" == false ]]; then
+    echo "ERROR: TAURI_SIGN=true but no codesigning identity was found. Import a Developer ID certificate or set APPLE_PERSONALID."
+    exit 1
+fi
+
+notarize_missing=()
+[[ -n "${APPLE_EMAIL:-}" ]] || notarize_missing+=("APPLE_EMAIL")
+[[ -n "${APPLE_PASSWORD:-}" ]] || notarize_missing+=("APPLE_PASSWORD")
+[[ -n "${APPLE_TEAMID:-}" ]] || notarize_missing+=("APPLE_TEAMID")
+
+SKIP_NOTARIZE=false
+case "$TAURI_NOTARIZE_MODE" in
+    true)
+        if [[ "$SIGN_ARTIFACTS" == false ]]; then
+            echo "ERROR: TAURI_NOTARIZE=true requires a codesigning identity."
+            exit 1
+        fi
+        if [[ "${#notarize_missing[@]}" -gt 0 ]]; then
+            echo "ERROR: TAURI_NOTARIZE=true but notarization env is missing: ${notarize_missing[*]}"
+            exit 1
+        fi
+        if [[ "$IDENTITY_KIND" == "apple-development" ]]; then
+            echo "ERROR: TAURI_NOTARIZE=true requires a Developer ID Application identity, not Apple Development."
+            exit 1
+        fi
+        ;;
+    false)
+        SKIP_NOTARIZE=true
+        ;;
+    auto)
+        if [[ "$SIGN_ARTIFACTS" == false ]]; then
+            echo "[warn] No codesigning identity found; building unsigned DMG and skipping notarization."
+            SKIP_NOTARIZE=true
+        elif [[ "$IDENTITY_KIND" == "apple-development" ]]; then
+            SKIP_NOTARIZE=true
+        elif [[ "${#notarize_missing[@]}" -gt 0 ]]; then
+            echo "[warn] Notarization env incomplete (${notarize_missing[*]}); skipping notarization."
+            SKIP_NOTARIZE=true
+        fi
+        ;;
+esac
 
 if [[ "$SKIP_NOTARIZE" == false ]]; then
-    : "${APPLE_EMAIL:?Need APPLE_EMAIL for notarization}"
-    : "${APPLE_PASSWORD:?Need APPLE_PASSWORD app-specific password for notarization}"
-    : "${APPLE_TEAMID:?Need APPLE_TEAMID for notarization}"
+    export APPLE_EMAIL APPLE_PASSWORD APPLE_TEAMID
 fi
 
 echo "----------------------------------------------"
 echo " ActivityWatch Tauri signed DMG build"
 echo " Version     : $VERSION"
 echo " Arch        : $ARCH"
-echo " Identity    : $APPLE_PERSONALID"
+echo " Sign        : $( [[ "$SIGN_ARTIFACTS" == true ]] && echo "yes" || echo "skip" )"
+echo " Identity    : ${APPLE_PERSONALID:-none}"
 echo " Watchers    : $TAURI_WATCHERS"
 echo " Notarize    : $( [[ "$SKIP_NOTARIZE" == true ]] && echo "skip" || echo "yes" )"
 echo "----------------------------------------------"
@@ -123,9 +209,14 @@ if [[ "$SKIP_BUILD" == false ]]; then
         source "venv/bin/activate"
     fi
 
-    rm -rf "$APP" "$RAW_DMG" "$SIGNED_DMG" "$APP_ZIP" dist/activitywatch dist/activitywatch-*-macos-*.dmg
-    TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" TAURI_BUNDLES=app make build
-    TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" make dist/ActivityWatch.app
+    rm -rf "$APP" "$RAW_DMG" "$SIGNED_DMG" "$APP_ZIP" dist/activitywatch-*-macos-*.dmg
+    if [[ "$SKIP_PROJECT_BUILD" == false ]]; then
+        rm -rf dist/activitywatch
+        TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" TAURI_BUNDLES=app make build PYTHON="$PYTHON"
+    else
+        [[ -d dist/activitywatch ]] || { echo "ERROR: dist/activitywatch not found."; exit 1; }
+    fi
+    TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" make dist/ActivityWatch.app PYTHON="$PYTHON"
 else
     echo ""
     echo "[1/5] Skipping build (--skip-build)"
@@ -133,9 +224,13 @@ else
 fi
 
 echo ""
-echo "[2/5] Verifying .app signature..."
-codesign --verify --deep --strict --verbose=2 "$APP"
-spctl --assess --type execute --verbose "$APP" 2>&1 || echo "(spctl may fail before notarization; continuing)"
+if [[ "$SIGN_ARTIFACTS" == true ]]; then
+    echo "[2/5] Verifying .app signature..."
+    codesign --verify --deep --strict --verbose=2 "$APP"
+    spctl --assess --type execute --verbose "$APP" 2>&1 || echo "(spctl may fail before notarization; continuing)"
+else
+    echo "[2/5] Skipping .app signature verification (unsigned build)"
+fi
 
 echo ""
 echo "[3/5] Building and signing DMG..."
@@ -150,7 +245,11 @@ dmgbuild \
     -D app="$APP" \
     "ActivityWatch" \
     "$RAW_DMG"
-codesign --force --verbose --timestamp --options runtime -s "$APPLE_PERSONALID" "$RAW_DMG"
+if [[ "$SIGN_ARTIFACTS" == true ]]; then
+    codesign --force --verbose --timestamp --options runtime -s "$APPLE_PERSONALID" "$RAW_DMG"
+else
+    echo "[3/5] Skipping DMG signing (unsigned build)"
+fi
 mv "$RAW_DMG" "$SIGNED_DMG"
 echo "[3/5] DMG: $SIGNED_DMG"
 
