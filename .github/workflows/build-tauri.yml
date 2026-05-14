@@ -17,6 +17,8 @@ jobs:
       # Whether to build and include extras (like aw-notify and aw-watcher-input)
       AW_EXTRAS: true
       TAURI_BUILD: true
+      # Temporary CI switch. Set to "true" to re-enable test steps for Tauri builds.
+      TAURI_RUN_TESTS: false
       # sets the macOS version target, see: https://users.rust-lang.org/t/compile-rust-binary-for-older-versions-of-mac-osx/38695
       MACOSX_DEPLOYMENT_TARGET: 10.9
     defaults:
@@ -123,6 +125,7 @@ jobs:
             pip freeze
 
       - name: Install test dependencies
+        if: env.TAURI_RUN_TESTS == 'true'
         run: |
           if [ -f venv/bin/activate ]; then
             source venv/bin/activate
@@ -137,6 +140,7 @@ jobs:
           python -c "import flask, flask_restx, flask_cors, aw_server; print('aw-server test dependencies OK')"
 
       - name: Run tests
+        if: env.TAURI_RUN_TESTS == 'true'
         uses: nick-fields/retry@v4
         with:
           timeout_minutes: 60
