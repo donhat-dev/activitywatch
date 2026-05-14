@@ -35,7 +35,6 @@ jobs:
       matrix:
         os:
           [
-            windows-latest,
             macos-latest,
           ]
         python_version: [3.9]
