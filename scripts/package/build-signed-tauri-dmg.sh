@@ -16,10 +16,12 @@
 #   APPLE_PERSONALID Codesigning identity. If unset, the script selects the first
 #                    Developer ID Application identity and falls back to Apple
 #                    Development for internal builds.
-#   TAURI_WATCHERS   Space-separated watcher list. Defaults to the Tauri watcher set.
-#   TAURI_SIGN       auto, true, or false. Defaults to auto.
-#   TAURI_NOTARIZE   auto, true, or false. Defaults to auto. "auto" skips
-#                    notarization when signing credentials are incomplete.
+#   TAURI_WATCHERS      Space-separated watcher list. Defaults to the Tauri watcher set.
+#   TAURI_LOAD_ENV_FILE auto, true, or false. Defaults to auto. "auto" skips .env
+#                       on GitHub Actions so repository files cannot override secrets.
+#   TAURI_SIGN          auto, true, or false. Defaults to auto.
+#   TAURI_NOTARIZE      auto, true, or false. Defaults to auto. "auto" skips
+#                       notarization when signing credentials are incomplete.
 #   TAURI_SKIP_NOTARIZE=true is also accepted for compatibility.
 
 set -euo pipefail
@@ -71,24 +73,6 @@ if ! command -v cargo &>/dev/null; then
     exit 1
 fi
 
-if [[ -f "$ROOT/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$ROOT/.env"
-    set +a
-    echo "[env] Loaded .env"
-fi
-
-TAURI_WATCHERS="${TAURI_WATCHERS:-aw-watcher-input aw-watcher-screenshot-mini aw-odoo-sync}"
-PYTHON="${PYTHON:-python}"
-VERSION="$(LC_ALL=C LANG=C bash scripts/package/getversion.sh 2>/dev/null || echo "dev")"
-ARCH="$(uname -m)"
-APP="dist/ActivityWatch.app"
-RAW_DMG="dist/ActivityWatch.dmg"
-SIGNED_DMG="dist/activitywatch-tauri-${VERSION}-macos-${ARCH}.dmg"
-APP_ZIP="dist/ActivityWatch.app.zip"
-KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-activitywatch-tauri-notarize}"
-
 normalize_mode() {
     local value
     value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
@@ -108,6 +92,31 @@ normalize_mode() {
             ;;
     esac
 }
+
+TAURI_LOAD_ENV_FILE_MODE="$(normalize_mode "${TAURI_LOAD_ENV_FILE:-auto}" "TAURI_LOAD_ENV_FILE")"
+if [[ "$TAURI_LOAD_ENV_FILE_MODE" == "auto" && "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    TAURI_LOAD_ENV_FILE_MODE=false
+fi
+
+if [[ "$TAURI_LOAD_ENV_FILE_MODE" == "true" && -f "$ROOT/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT/.env"
+    set +a
+    echo "[env] Loaded .env"
+elif [[ -f "$ROOT/.env" ]]; then
+    echo "[env] Skipping .env"
+fi
+
+TAURI_WATCHERS="${TAURI_WATCHERS:-aw-watcher-input aw-watcher-screenshot-mini aw-odoo-sync}"
+PYTHON="${PYTHON:-python}"
+VERSION="$(LC_ALL=C LANG=C bash scripts/package/getversion.sh 2>/dev/null || echo "dev")"
+ARCH="$(uname -m)"
+APP="dist/ActivityWatch.app"
+RAW_DMG="dist/ActivityWatch.dmg"
+SIGNED_DMG="dist/activitywatch-tauri-${VERSION}-macos-${ARCH}.dmg"
+APP_ZIP="dist/ActivityWatch.app.zip"
+KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-activitywatch-tauri-notarize}"
 
 TAURI_SIGN_MODE="$(normalize_mode "${TAURI_SIGN:-auto}" "TAURI_SIGN")"
 TAURI_NOTARIZE_MODE="$(normalize_mode "${TAURI_NOTARIZE:-auto}" "TAURI_NOTARIZE")"
