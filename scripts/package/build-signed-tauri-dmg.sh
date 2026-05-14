@@ -210,8 +210,22 @@ echo "----------------------------------------------"
 if [[ "$SKIP_BUILD" == false ]]; then
     echo ""
     echo "[1/5] Building Tauri .app..."
-    source "$HOME/.nvm/nvm.sh" 2>/dev/null || true
-    nvm use 24 2>/dev/null || true
+    if [[ -f "$HOME/.nvm/nvm.sh" ]]; then
+        echo "[node] Loading nvm from $HOME/.nvm/nvm.sh"
+        # shellcheck disable=SC1090
+        source "$HOME/.nvm/nvm.sh" || echo "[warn] Failed to source $HOME/.nvm/nvm.sh"
+        if command -v nvm >/dev/null 2>&1; then
+            nvm use 24 || echo "[warn] nvm could not switch to Node 24; using current PATH"
+        else
+            echo "[warn] nvm command was not available after sourcing nvm.sh"
+        fi
+    else
+        echo "[node] $HOME/.nvm/nvm.sh not found; using Node from PATH"
+    fi
+    echo "[node] node path: $(command -v node || echo "not found")"
+    node --version || true
+    echo "[node] npm path: $(command -v npm || echo "not found")"
+    npm --version || true
 
     if [[ -f "venv/bin/activate" ]]; then
         # shellcheck disable=SC1091
@@ -221,10 +235,12 @@ if [[ "$SKIP_BUILD" == false ]]; then
     rm -rf "$APP" "$RAW_DMG" "$SIGNED_DMG" "$APP_ZIP" dist/activitywatch-*-macos-*.dmg
     if [[ "$SKIP_PROJECT_BUILD" == false ]]; then
         rm -rf dist/activitywatch
+        echo "[1/5] Running make build"
         TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" TAURI_BUNDLES=app make build PYTHON="$PYTHON"
     else
         [[ -d dist/activitywatch ]] || { echo "ERROR: dist/activitywatch not found."; exit 1; }
     fi
+    echo "[1/5] Running make dist/ActivityWatch.app"
     TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" make dist/ActivityWatch.app PYTHON="$PYTHON"
 else
     echo ""
