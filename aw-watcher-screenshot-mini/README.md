@@ -53,7 +53,7 @@ Example full config:
 
 ```toml
 [trigger]
-interval_secs = 300
+interval_secs = 60
 
 [capture]
 force_interval_secs = 60
@@ -101,6 +101,7 @@ Output will be created in `dist/aw-watcher-screenshot-mini/`.
 - On Linux it needs a GUI session and one of: `gnome-screenshot`, `grim`, `scrot`, `import`.
 - On Windows it uses `pywin32` screen capture APIs.
 - Event payload stores screenshot file metadata and optional S3 object references, not raw image bytes.
+- Odoo upload policy is owned by `aw-odoo-sync`; this watcher captures local ActivityWatch events only.
 - Cache files are stored in hourly folders for easier sync and cleanup.
 - Compression can be tuned using `webp_quality`, `webp_method`, `max_width`, and `max_height`.
 - Cache cleanup can be tuned with `cleanup_after_hours` and `cleanup_every_n_captures`.

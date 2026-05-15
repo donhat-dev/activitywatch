@@ -241,7 +241,7 @@ if [[ "$SKIP_BUILD" == false ]]; then
         [[ -d dist/activitywatch ]] || { echo "ERROR: dist/activitywatch not found."; exit 1; }
     fi
     echo "[1/5] Running make dist/ActivityWatch.app"
-    TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" make dist/ActivityWatch.app PYTHON="$PYTHON"
+    TAURI_BUILD=true TAURI_WATCHERS="$TAURI_WATCHERS" TAURI_BUNDLES=app make dist/ActivityWatch.app PYTHON="$PYTHON"
 else
     echo ""
     echo "[1/5] Skipping build (--skip-build)"

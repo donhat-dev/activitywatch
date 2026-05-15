@@ -48,6 +48,7 @@ click = "^8.0"
 persist-queue = "*"
 requests = "*"
 tabulate = "*"
+tomlkit = "*"
 typing-extensions = "*"
 
 [package.source]
@@ -69,7 +70,7 @@ click = "*"
 deprecation = "*"
 iso8601 = "*"
 jsonschema = "^4.3"
-peewee = "3.*"
+peewee = ">=3.0.0,<5.0.0"
 platformdirs = "3.10"
 rfc3339-validator = "^0.1.4"
 strict-rfc3339 = "^0.7"
@@ -1054,4 +1055,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "1ed11d627663bd87e6183508123eedcd1a5f1d89b38bb754cba1e597138e56d7"
+content-hash = "35404f542bd727bdde62ccb42ecadacb20ea3bce16622132189be181a21981a7"

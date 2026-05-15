@@ -4,6 +4,7 @@ import base64
 import http.client
 import json
 import logging
+import os
 import socket
 import ssl
 import urllib.error
@@ -12,9 +13,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
-from uuid import uuid4
 
 from .config import default_odoo_base_url, default_odoo_token
+
+certifi_module: Any
+try:
+    import certifi as certifi_module
+except ImportError:  # pragma: no cover
+    certifi_module = None
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +35,7 @@ class OdooPushConfig:
     device_id: str = ""
     device_name: str = ""
     timeout_secs: float = 10.0
+    verify_ssl: bool = True
     push_screenshots: bool = True
     push_metadata_events: bool = False
 
@@ -42,6 +49,7 @@ class OdooActivityTrackingClient:
         self.hostname = socket.gethostname()
         self.device_id = config.device_id or self.hostname
         self._warned_disabled = False
+        self._warned_insecure_ssl = False
         self._parsed_url = urlparse(self.base_url)
         self._conn: Optional[http.client.HTTPConnection] = None
 
@@ -63,8 +71,11 @@ class OdooActivityTrackingClient:
             port = self._parsed_url.port
             timeout = self.config.timeout_secs
             if self._parsed_url.scheme == "https":
+                if not self.config.verify_ssl and not self._warned_insecure_ssl:
+                    logger.warning("Odoo HTTPS SSL verification is disabled for %s", self.base_url)
+                    self._warned_insecure_ssl = True
                 self._conn = http.client.HTTPSConnection(
-                    host, port, timeout=timeout, context=ssl.create_default_context()
+                    host, port, timeout=timeout, context=_create_ssl_context(self.config.verify_ssl)
                 )
             else:
                 self._conn = http.client.HTTPConnection(host, port, timeout=timeout)
@@ -83,10 +94,20 @@ class OdooActivityTrackingClient:
             return None
         self.start()
         response = self._post("/api/v1/activity_tracking/config", {"device": self._device_payload()})
-        if not response or not isinstance(response, dict) or not response.get("success"):
+        if not response:
+            return None
+        if not isinstance(response, dict):
+            logger.warning("Odoo tracking config returned unexpected response type: %s", type(response).__name__)
+            return None
+        if not response.get("success"):
+            error = response.get("error") or response.get("message") or response
+            logger.warning("Odoo tracking config unavailable: %s", error)
             return None
         data = response.get("data")
-        return data if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            logger.warning("Odoo tracking config response missing data object")
+            return None
+        return data
 
     def push_bucket_events(
         self,
@@ -185,6 +206,10 @@ class OdooActivityTrackingClient:
                     logger.warning("Odoo push failed: HTTP %s %s", resp.status, data[:200])
                     return None
                 return json.loads(data) if data else None
+            except ssl.SSLError as exc:
+                logger.warning("Odoo SSL verification failed: %s", exc)
+                self._close_conn()
+                return None
             except (http.client.RemoteDisconnected, ConnectionResetError, BrokenPipeError, OSError) as exc:
                 logger.debug("Odoo connection lost (%s), reconnecting", exc)
                 self._close_conn()
@@ -218,6 +243,17 @@ class OdooActivityTrackingClient:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _create_ssl_context(verify_ssl: bool = True) -> ssl.SSLContext:
+    if not verify_ssl:
+        return ssl._create_unverified_context()  # noqa: SLF001
+    cafile = os.getenv("ODOO_CA_FILE") or os.getenv("SSL_CERT_FILE")
+    if cafile:
+        return ssl.create_default_context(cafile=os.path.expanduser(cafile))
+    if certifi_module is not None:
+        return ssl.create_default_context(cafile=certifi_module.where())
+    return ssl.create_default_context()
 
 
 def _tracking_context_payload(tracking_context: Optional[Dict[str, Any]]) -> Dict[str, Any]:

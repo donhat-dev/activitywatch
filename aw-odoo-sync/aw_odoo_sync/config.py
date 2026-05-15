@@ -77,6 +77,13 @@ def _env_value(env: Dict[str, str], *keys: str) -> str:
     return ""
 
 
+def _env_bool(default: bool, *keys: str) -> bool:
+    value = _env_value(_load_dotenv(), *keys)
+    if not value:
+        return default
+    return value.lower() not in {"0", "false", "no", "off"}
+
+
 def default_odoo_base_url() -> str:
     env = _load_dotenv()
     return _env_value(env, "BASE_URL", "ODOO_URL", "ODOO_BASE_URL") or DEFAULT_ODOO_BASE_URL
@@ -85,6 +92,10 @@ def default_odoo_base_url() -> str:
 def default_odoo_token() -> str:
     env = _load_dotenv()
     return _env_value(env, "TOKEN", "ODOO_TOKEN")
+
+
+def default_odoo_verify_ssl() -> bool:
+    return _env_bool(True, "ODOO_VERIFY_SSL", "VERIFY_SSL")
 
 
 @dataclass
@@ -108,6 +119,7 @@ class OdooConfig:
     device_id: str = ""
     device_name: str = ""
     timeout_secs: float = 10.0
+    verify_ssl: bool = field(default_factory=default_odoo_verify_ssl)
     push_screenshots: bool = True
     push_metadata_events: bool = False
 
@@ -116,6 +128,7 @@ class OdooConfig:
 class ScreenshotConfig:
     enabled: bool = True
     bucket_ids: List[str] = field(default_factory=lambda: ["aw-watcher-screenshot-mini"])
+    selection_window_secs: int = 120
 
 
 @dataclass

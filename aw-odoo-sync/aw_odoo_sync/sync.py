@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import random
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from time import sleep
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -20,6 +22,9 @@ from .config import AppConfig, resolve_state_path
 from .odoo_client import OdooActivityTrackingClient, OdooPushConfig
 
 logger = logging.getLogger(__name__)
+
+MIN_SCREENSHOT_CYCLE_SECS = 60
+MAX_SCREENSHOT_CYCLE_SECS = 3540
 
 KNOWN_BUCKET_TYPES_BY_PREFIX = {
     "aw-watcher-input_": "os.hid.input",
@@ -39,6 +44,7 @@ class SyncState:
         self.path = path
         self.buckets: Dict[str, BucketSyncCursor] = {}
         self.attachments: Set[str] = set()
+        self.screenshot_targets: Set[str] = set()
         self._load()
 
     def get_last_timestamp(self, bucket_id: str) -> Optional[datetime]:
@@ -56,11 +62,18 @@ class SyncState:
     def add_attachment(self, attachment_id: str) -> None:
         self.attachments.add(attachment_id)
 
+    def has_screenshot_target(self, target_key: str) -> bool:
+        return target_key in self.screenshot_targets
+
+    def add_screenshot_target(self, target_key: str) -> None:
+        self.screenshot_targets.add(target_key)
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "buckets": {bucket_id: asdict(cursor) for bucket_id, cursor in self.buckets.items()},
             "attachments": sorted(self.attachments),
+            "screenshot_targets": sorted(self.screenshot_targets),
         }
         self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -77,6 +90,7 @@ class SyncState:
             for bucket_id, cursor in (payload.get("buckets") or {}).items()
         }
         self.attachments = set(payload.get("attachments") or [])
+        self.screenshot_targets = set(payload.get("screenshot_targets") or [])
 
 
 class ActivityWatchOdooSyncService:
@@ -96,6 +110,7 @@ class ActivityWatchOdooSyncService:
         self.last_tracking_context: Optional[Dict[str, Any]] = None
         self.last_tracking_context_fingerprint: Optional[str] = None
         self.warned_tracking_context_unavailable = False
+        self.warned_odoo_disabled = False
 
     def run_forever(self) -> None:
         logger.info("Starting aw-odoo-sync")
@@ -178,32 +193,127 @@ class ActivityWatchOdooSyncService:
         if not self.config.screenshot.enabled:
             self._discard_bucket_events(bucket_id, "screenshot sync disabled")
             return
+        now = datetime.now(timezone.utc)
+        started_at = _parse_optional_datetime(tracking_context.get("started_at"))
+        if started_at is not None and now < started_at:
+            return
+
         uploaded_attachments = 0
-        while True:
-            events = self._get_bucket_events(bucket_id)
-            if not events:
-                return
-            for event in events:
-                images = (event.data or {}).get("images") or []
-                captured_at = (event.data or {}).get("captured_at") or event.timestamp.astimezone(timezone.utc).isoformat()
-                for image in images:
-                    attachment_id = str(image.get("sha256") or image.get("path") or "")
-                    if not attachment_id or self.state.has_attachment(attachment_id):
-                        continue
-                    result = self.odoo_client.push_screenshot_attachment(
-                        bucket_id,
-                        bucket_type,
-                        captured_at,
-                        image,
-                        tracking_context=tracking_context,
-                    )
-                    if result is not None:
-                        uploaded_attachments += 1
-                        self.state.add_attachment(attachment_id)
-            self._advance_cursor(bucket_id, events)
-            if len(events) < self.config.server.batch_size:
-                logger.info("Uploaded %s screenshot attachments from %s", uploaded_attachments, bucket_id)
-                return
+        checked_targets = 0
+        cycle_time_secs = _normalize_screenshot_cycle_secs(
+            tracking_context.get("cycle_time_secs"),
+            default=600,
+            warn=False,
+        )
+        selection_window = max(int(self.config.screenshot.selection_window_secs or 0), 0)
+        local_tz = _device_local_timezone()
+
+        for cycle_start_local in _wall_clock_cycle_starts(now, cycle_time_secs, local_tz):
+            cycle_end_local = cycle_start_local + timedelta(seconds=cycle_time_secs)
+            cycle_start = cycle_start_local.astimezone(timezone.utc)
+            cycle_end = cycle_end_local.astimezone(timezone.utc)
+            events = self._get_screenshot_events(bucket_id, cycle_start, min(now, cycle_end))
+            targets = _screenshot_target_times(
+                tracking_context,
+                cycle_start_local,
+                bucket_id=bucket_id,
+                device_id=self.odoo_client.device_id,
+            )
+            logger.debug(
+                "Screenshot wall-clock targets for %s cycle %s: %s",
+                bucket_id,
+                cycle_start_local.isoformat(),
+                [target.isoformat() for target in targets],
+            )
+            for target_at in targets:
+                if target_at > now:
+                    continue
+                target_key = _screenshot_target_key(
+                    bucket_id,
+                    self.odoo_client.device_id,
+                    cycle_start_local,
+                    target_at,
+                )
+                if self.state.has_screenshot_target(target_key):
+                    continue
+                if started_at is not None and target_at < started_at:
+                    self.state.add_screenshot_target(target_key)
+                    continue
+                checked_targets += 1
+                event = _select_screenshot_event(events, target_at, selection_window)
+                if event is None:
+                    if now >= cycle_end + timedelta(seconds=selection_window):
+                        self.state.add_screenshot_target(target_key)
+                    continue
+
+                uploaded_for_target, target_complete = self._upload_screenshot_event(
+                    bucket_id,
+                    bucket_type,
+                    event,
+                    tracking_context,
+                )
+                uploaded_attachments += uploaded_for_target
+                if target_complete:
+                    self.state.add_screenshot_target(target_key)
+
+        if checked_targets or uploaded_attachments:
+            logger.info(
+                "Checked %s screenshot target(s), uploaded %s attachment(s) from %s",
+                checked_targets,
+                uploaded_attachments,
+                bucket_id,
+            )
+
+    def _get_screenshot_events(self, bucket_id: str, start: datetime, end: datetime) -> List[Event]:
+        events = self.client.get_events(
+            bucket_id,
+            limit=self.config.server.batch_size,
+            start=start,
+            end=end,
+        )
+        return sorted(events, key=lambda event: event.timestamp)
+
+    def _upload_screenshot_event(
+        self,
+        bucket_id: str,
+        bucket_type: str,
+        event: Event,
+        tracking_context: Dict[str, Any],
+    ) -> Tuple[int, bool]:
+        images = (event.data or {}).get("images") or []
+        captured_at = (event.data or {}).get("captured_at") or event.timestamp.astimezone(timezone.utc).isoformat()
+        uploadable_images: List[Tuple[Dict[str, Any], str]] = []
+        for image in images:
+            if not isinstance(image, dict):
+                continue
+            attachment_id = _screenshot_attachment_id(image, captured_at)
+            if not attachment_id or self.state.has_attachment(attachment_id):
+                continue
+            path_value = image.get("path")
+            if not path_value or not Path(str(path_value)).exists():
+                logger.warning("Skipping screenshot attachment with missing file: %s", path_value or "<missing path>")
+                continue
+            uploadable_images.append((image, attachment_id))
+
+        if not uploadable_images:
+            return 0, True
+
+        uploaded = 0
+        failed = False
+        for image, attachment_id in uploadable_images:
+            result = self.odoo_client.push_screenshot_attachment(
+                bucket_id,
+                bucket_type,
+                captured_at,
+                image,
+                tracking_context=tracking_context,
+            )
+            if result is None:
+                failed = True
+                continue
+            uploaded += 1
+            self.state.add_attachment(attachment_id)
+        return uploaded, not failed
 
     def _get_bucket_events(self, bucket_id: str) -> List[Event]:
         start = self.state.get_last_timestamp(bucket_id)
@@ -221,17 +331,27 @@ class ActivityWatchOdooSyncService:
         self.state.set_last_timestamp(bucket_id, last_timestamp)
 
     def _serialize_event(self, bucket_id: str, event: Event) -> Dict[str, Any]:
-        event_id = event.id if event.id is not None else f"{bucket_id}-{int(event.timestamp.timestamp() * 1000)}"
         data = dict(event.data or {})
         data.setdefault("bucket", bucket_id)
+        event_id = _stable_event_id(bucket_id, event, data)
         return {
-            "id": str(event_id),
+            "id": event_id,
             "timestamp": event.timestamp.astimezone(timezone.utc).isoformat(),
             "duration": event.duration.total_seconds(),
             "data": data,
         }
 
     def _refresh_tracking_context(self) -> Optional[Dict[str, Any]]:
+        if not self.odoo_client.enabled:
+            self.last_tracking_context = None
+            self._publish_tracking_context(None)
+            self.warned_tracking_context_unavailable = False
+            if not self.warned_odoo_disabled:
+                logger.info("Odoo sync is disabled; skipping tracking context fetch")
+                self.warned_odoo_disabled = True
+            return None
+
+        self.warned_odoo_disabled = False
         remote_context = self.odoo_client.get_tracking_config()
         if remote_context is None:
             self.last_tracking_context = None
@@ -373,6 +493,7 @@ def _normalize_tracking_context(context: Dict[str, Any]) -> Dict[str, Any]:
     cycle_time_secs = _positive_int(context.get("cycle_time_secs"), default=0)
     if cycle_time_secs <= 0:
         cycle_time_secs = _positive_int(context.get("cycle_time"), default=10) * 60
+    cycle_time_secs = _normalize_screenshot_cycle_secs(cycle_time_secs, default=600)
 
     return {
         "is_tracking": bool(context.get("is_tracking", False)),
@@ -395,6 +516,126 @@ def _positive_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _normalize_screenshot_cycle_secs(value: Any, default: int = 600, warn: bool = True) -> int:
+    raw_value = _positive_int(value, default=default)
+    rounded = int((raw_value + 30) // 60) * 60
+    normalized = min(max(rounded, MIN_SCREENSHOT_CYCLE_SECS), MAX_SCREENSHOT_CYCLE_SECS)
+    if warn and normalized != raw_value:
+        logger.warning(
+            "Normalized screenshot cycle_time_secs from %s to %s; expected a 60s multiple in [%s, %s]",
+            raw_value,
+            normalized,
+            MIN_SCREENSHOT_CYCLE_SECS,
+            MAX_SCREENSHOT_CYCLE_SECS,
+        )
+    return normalized
+
+
+def _stable_event_id(bucket_id: str, event: Event, data: Dict[str, Any]) -> str:
+    timestamp = event.timestamp.astimezone(timezone.utc).isoformat()
+    duration = event.duration.total_seconds()
+    fingerprint_payload = {
+        "bucket": bucket_id,
+        "timestamp": timestamp,
+        "duration": duration,
+        "data": data,
+    }
+    digest = hashlib.sha256(
+        json.dumps(fingerprint_payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    millis = int(event.timestamp.timestamp() * 1000)
+    return f"{bucket_id}-{millis}-{digest}"
+
+
+def _device_local_timezone() -> tzinfo:
+    local_tz = datetime.now().astimezone().tzinfo
+    return local_tz or timezone.utc
+
+
+def _wall_clock_cycle_starts(now: datetime, cycle_time_secs: int, local_tz: tzinfo) -> List[datetime]:
+    local_now = now.astimezone(local_tz)
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    seconds_since_midnight = int((local_now - local_midnight).total_seconds())
+    current_cycle_offset = (seconds_since_midnight // cycle_time_secs) * cycle_time_secs
+    current_cycle_start = local_midnight + timedelta(seconds=current_cycle_offset)
+    previous_cycle_start = current_cycle_start - timedelta(seconds=cycle_time_secs)
+    return [previous_cycle_start, current_cycle_start]
+
+
+def _screenshot_target_times(
+    tracking_context: Dict[str, Any],
+    cycle_start: datetime,
+    bucket_id: str,
+    device_id: str,
+) -> List[datetime]:
+    screenshot_per_cycle = _positive_int(tracking_context.get("screenshot_per_cycle"), default=1)
+    cycle_time_secs = _normalize_screenshot_cycle_secs(
+        tracking_context.get("cycle_time_secs"),
+        default=600,
+        warn=False,
+    )
+    minute_count = max(1, cycle_time_secs // 60)
+    target_count = min(screenshot_per_cycle, minute_count)
+    cycle_start_local = cycle_start if cycle_start.tzinfo else cycle_start.replace(tzinfo=timezone.utc)
+    seed_parts = [
+        str(device_id or ""),
+        str(bucket_id or ""),
+        cycle_start_local.date().isoformat(),
+        cycle_start_local.isoformat(),
+        str(cycle_time_secs),
+        str(screenshot_per_cycle),
+    ]
+    seed = hashlib.sha256("|".join(seed_parts).encode("utf-8")).hexdigest()
+    rng = random.Random(int(seed[:16], 16))
+    offsets = sorted(rng.sample(range(minute_count), target_count))
+    return [(cycle_start_local + timedelta(minutes=offset)).astimezone(timezone.utc) for offset in offsets]
+
+
+def _screenshot_target_key(
+    bucket_id: str,
+    device_id: str,
+    cycle_start: datetime,
+    target_at: datetime,
+) -> str:
+    cycle_start_local = cycle_start if cycle_start.tzinfo else cycle_start.replace(tzinfo=timezone.utc)
+    target_local = target_at.astimezone(cycle_start_local.tzinfo or timezone.utc)
+    target_minute = int((target_local - cycle_start_local).total_seconds() // 60)
+    return "|".join(
+        [
+            bucket_id,
+            str(device_id or ""),
+            cycle_start_local.date().isoformat(),
+            cycle_start_local.isoformat(),
+            str(target_minute),
+        ]
+    )
+
+
+def _select_screenshot_event(
+    events: Iterable[Event],
+    target_at: datetime,
+    selection_window_secs: int,
+) -> Optional[Event]:
+    best_event: Optional[Event] = None
+    best_delta: Optional[float] = None
+    for event in events:
+        images = (event.data or {}).get("images") or []
+        if not images:
+            continue
+        event_timestamp = event.timestamp.astimezone(timezone.utc)
+        delta = abs((event_timestamp - target_at).total_seconds())
+        if delta > selection_window_secs:
+            continue
+        if best_delta is None or delta < best_delta:
+            best_event = event
+            best_delta = delta
+    return best_event
+
+
+def _screenshot_attachment_id(image: Dict[str, Any], captured_at: str) -> str:
+    return str(image.get("sha256") or image.get("path") or f"{captured_at}-{image.get('monitor_id', '')}")
 
 
 def _is_idle_input_event(event: Dict[str, Any]) -> bool:

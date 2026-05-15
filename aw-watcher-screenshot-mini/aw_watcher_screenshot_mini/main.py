@@ -13,10 +13,6 @@ from time import sleep
 from typing import Any, Dict, List, Optional
 
 from aw_client import ActivityWatchClient
-try:
-    from aw_client.odoo_config import ODOO_TRACKING_CONTEXT_SETTING
-except ImportError:
-    ODOO_TRACKING_CONTEXT_SETTING = "odoo_tracking_context"
 from aw_core.dirs import get_log_dir
 from aw_core.models import Event
 
@@ -26,8 +22,6 @@ from .capture import ScreenshotTransientError, capture_screenshots, load_image
 from .config import DEFAULT_CLIENT_NAME, DEFAULT_EVENT_TYPE, AppConfig, LoggingConfig, parse_args
 
 logger = logging.getLogger(__name__)
-
-_IDLE_POLL_SECS = 30.0
 
 
 def _default_log_dir() -> Path:
@@ -125,21 +119,6 @@ def _mask_secret(value: Optional[str], visible: int = 4) -> str:
     return "*" * (len(value) - visible) + value[-visible:]
 
 
-def _parse_datetime(value: Any) -> Optional[datetime]:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    normalized = value.strip()
-    if normalized.endswith("Z"):
-        normalized = normalized[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
 def _log_startup_config(config: AppConfig, log_path: Optional[Path]) -> None:
     logger.info("Watcher config path: %s", config.config_path or "<default>")
     if log_path:
@@ -222,8 +201,6 @@ class ScreenshotWatcher:
         self.s3_client = self._build_s3_client()
         self.capture_failures = 0
         self.last_capture_error: Optional[str] = None
-        self.last_remote_config: Optional[Dict[str, Any]] = None
-        self._warned_remote_unavailable = False
 
     def run(self) -> None:
         logger.info("Starting screenshot watcher")
@@ -239,18 +216,8 @@ class ScreenshotWatcher:
 
         with self.client:
             while self.running:
-                tracking_config = self._get_tracking_config()
-                cycle_time_secs = tracking_config["cycle_time_secs"]
-                if not tracking_config["is_tracking"] or not tracking_config["is_tracking_screenshot"]:
-                    self._sleep_with_heartbeat(_IDLE_POLL_SECS, send_heartbeat=False)
-                    continue
-                if not tracking_config["is_working"]:
-                    self._sleep_with_heartbeat(_IDLE_POLL_SECS, send_heartbeat=False)
-                    continue
-
-                self._capture_once(tracking_config)
-                slot_duration = cycle_time_secs / tracking_config["screenshot_per_cycle"]
-                self._sleep_with_heartbeat(slot_duration, send_heartbeat=True)
+                self._capture_once()
+                self._sleep_with_heartbeat(self.config.trigger.interval_secs, send_heartbeat=True)
 
         logger.info("Watcher stopped")
 
@@ -258,7 +225,7 @@ class ScreenshotWatcher:
         logger.info("Stop signal received")
         self.running = False
 
-    def _capture_once(self, tracking_context: Optional[Dict[str, Any]] = None) -> None:
+    def _capture_once(self) -> None:
         try:
             event = self.capture_and_build_event()
             if event is not None:
@@ -287,83 +254,6 @@ class ScreenshotWatcher:
             self.enqueue_last_heartbeat()
         except Exception:
             logger.exception("Capture loop iteration failed")
-
-    def _get_tracking_config(self) -> Dict[str, Any]:
-        fallback_cycle_secs = max(float(self.config.trigger.interval_secs or 60.0), 1.0)
-        fallback = {
-            "is_tracking": False,
-            "is_tracking_idle": False,
-            "is_tracking_screenshot": False,
-            "is_working": False,
-            "timer_session_id": False,
-            "account_analytic_line_id": False,
-            "task_id": False,
-            "task_name": False,
-            "started_at": False,
-            "screenshot_per_cycle": 1,
-            "cycle_time_secs": fallback_cycle_secs,
-        }
-        remote = self._load_published_tracking_context()
-        if remote is None:
-            if not self._warned_remote_unavailable:
-                logger.warning("Local Odoo tracking context unavailable; using fallback config")
-                self._warned_remote_unavailable = True
-            return fallback
-
-        if self._warned_remote_unavailable:
-            logger.info("Local Odoo tracking context available again")
-            self._warned_remote_unavailable = False
-
-        screenshot_per_cycle = int(remote.get("screenshot_per_cycle") or 0)
-        cycle_time_secs = int(remote.get("cycle_time_secs") or 0)
-        if cycle_time_secs <= 0:
-            cycle_time_minutes = int(remote.get("cycle_time") or 0)
-            cycle_time_secs = cycle_time_minutes * 60
-
-        if screenshot_per_cycle <= 0:
-            screenshot_per_cycle = 1
-        if cycle_time_secs <= 0:
-            cycle_time_secs = int(fallback_cycle_secs)
-
-        resolved = {
-            "is_tracking": bool(remote.get("is_tracking", False)),
-            "is_tracking_idle": bool(remote.get("is_tracking_idle", False)),
-            "is_tracking_screenshot": bool(remote.get("is_tracking_screenshot", False)),
-            "is_working": bool(remote.get("is_working", False)),
-            "timer_session_id": remote.get("timer_session_id") or False,
-            "account_analytic_line_id": remote.get("account_analytic_line_id") or False,
-            "task_id": remote.get("task_id") or False,
-            "task_name": remote.get("task_name") or False,
-            "started_at": remote.get("started_at") or False,
-            "screenshot_per_cycle": screenshot_per_cycle,
-            "cycle_time_secs": cycle_time_secs,
-        }
-
-        if self.last_remote_config != resolved:
-            logger.info("Local Odoo tracking context in use: %s", resolved)
-            self.last_remote_config = dict(resolved)
-
-        return resolved
-
-    def _load_published_tracking_context(self) -> Optional[Dict[str, Any]]:
-        try:
-            payload = self.client.get_setting(ODOO_TRACKING_CONTEXT_SETTING)
-        except Exception as exc:
-            logger.debug("Unable to read local Odoo tracking context: %s", exc)
-            return None
-        if not isinstance(payload, dict):
-            return None
-
-        updated_at = _parse_datetime(payload.get("updated_at"))
-        if updated_at is None:
-            return None
-        max_age_secs = max(_IDLE_POLL_SECS * 3, 45.0)
-        if datetime.now(timezone.utc) - updated_at > timedelta(seconds=max_age_secs):
-            logger.debug("Local Odoo tracking context is stale: %s", updated_at.isoformat())
-            return None
-
-        data = payload.get("data")
-        return data if isinstance(data, dict) else None
 
     def _sleep_with_heartbeat(self, total_secs: float, send_heartbeat: bool) -> None:
         if total_secs <= 0:
@@ -525,10 +415,6 @@ class ScreenshotWatcher:
 
     def _cleanup_cache_if_needed(self, now: datetime) -> None:
         if self.config.cache.cleanup_after_hours is None:
-            return
-        # Skip cleanup if Odoo sync is enabled to prevent deletion of files before they're pushed
-        if self.config.odoo.enabled:
-            logger.debug("Skipping cache cleanup because Odoo sync is enabled")
             return
         if self.capture_count % max(self.config.cache.cleanup_every_n_captures, 1) != 0:
             return

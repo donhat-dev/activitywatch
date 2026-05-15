@@ -18,7 +18,7 @@ DEFAULT_EVENT_TYPE = "os.desktop.screenshot"
 DEFAULT_CLIENT_NAME = "aw-watcher-screenshot-mini"
 DEFAULT_CONFIG_TOML = """
 [trigger]
-interval_secs = 300
+interval_secs = 60
 
 [capture]
 force_interval_secs = 60
@@ -82,7 +82,7 @@ filename = ""
 
 @dataclass
 class TriggerConfig:
-    interval_secs: float = 300.0
+    interval_secs: float = 60.0
     timeout_secs: Optional[float] = None
 
 

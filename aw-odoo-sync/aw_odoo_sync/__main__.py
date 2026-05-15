@@ -91,12 +91,13 @@ def _log_startup_config(config, log_path: Optional[Path]) -> None:
     )
     logger.info("State path: %s", resolve_state_path(config))
     logger.info(
-        "Screenshot: enabled=%s bucket_ids=%s",
+        "Screenshot: enabled=%s bucket_ids=%s selection_window_secs=%s",
         config.screenshot.enabled,
         config.screenshot.bucket_ids,
+        config.screenshot.selection_window_secs,
     )
     logger.info(
-        "Odoo: enabled=%s base_url=%s pin_code=%s employee_id=%s device_id=%s device_name=%s timeout_secs=%s push_screenshots=%s push_metadata_events=%s",
+        "Odoo: enabled=%s base_url=%s pin_code=%s employee_id=%s device_id=%s device_name=%s timeout_secs=%s verify_ssl=%s push_screenshots=%s push_metadata_events=%s",
         config.odoo.enabled,
         config.odoo.base_url,
         _mask_secret(config.odoo.pin_code),
@@ -104,6 +105,7 @@ def _log_startup_config(config, log_path: Optional[Path]) -> None:
         config.odoo.device_id,
         config.odoo.device_name,
         config.odoo.timeout_secs,
+        config.odoo.verify_ssl,
         config.odoo.push_screenshots,
         config.odoo.push_metadata_events,
     )

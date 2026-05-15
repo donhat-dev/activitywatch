@@ -4,7 +4,7 @@ Central Odoo sync daemon for ActivityWatch.
 
 ## Responsibilities
 - Read ActivityWatch buckets/events from local aw-server
-- Poll Odoo tracking state frequently and publish it locally for watchers
+- Poll Odoo tracking state frequently and publish it locally for UI/diagnostics
 - Sync only when Odoo reports tracking is enabled and a timer/task is running
 - Sync only bucket-events with `duration > 0` to Odoo
 - Upload screenshot files as Odoo attachments
@@ -21,3 +21,4 @@ This is an implementation skeleton for the new sync direction.
 - Events older than the current Odoo timer `started_at` are skipped
 - Idle input/AFK events are synced only when Odoo reports `is_tracking_idle=true`
 - Screenshot metadata events are not pushed to Odoo; only attachments are uploaded
+- Screenshot uploads are selected by deterministic per-cycle targets from Odoo `screenshot_per_cycle` and `cycle_time_secs`

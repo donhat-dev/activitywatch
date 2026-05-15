@@ -17,6 +17,7 @@ aw-core = {path = "../aw-core", develop = true}
 aw-client = {path = "../aw-client", develop = true}
 tomli = {version = ">=1.2,<3", python = "<3.11"}
 chardet = ">=3.0.2,<6"
+certifi = ">=2023.7.22"
 
 [tool.poetry.dev-dependencies]
 pyinstaller = { version = "^6.6", python = "^3.8,<3.14" }

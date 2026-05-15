@@ -224,7 +224,8 @@ def _input_desktop_available() -> bool:
     if os.name != "nt":
         return True
 
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    windll = getattr(ctypes, "WinDLL")
+    user32 = windll("user32", use_last_error=True)
     open_input_desktop = user32.OpenInputDesktop
     open_input_desktop.argtypes = [ctypes.c_uint, ctypes.c_bool, ctypes.c_uint]
     open_input_desktop.restype = ctypes.c_void_p

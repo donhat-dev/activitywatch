@@ -17,12 +17,16 @@ employee_id = ""
 device_id = ""
 device_name = ""
 timeout_secs = 10
+# Set to false only for internal/dev Odoo hosts with broken or private CA chains.
+verify_ssl = true
 push_screenshots = true
 push_metadata_events = false
 
 [screenshot]
 enabled = true
 bucket_ids = ["aw-watcher-screenshot-mini*"]
+# A scheduled target picks the nearest captured screenshot within this window.
+selection_window_secs = 120
 
 [logging]
 enabled = true
