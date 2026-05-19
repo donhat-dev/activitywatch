@@ -129,8 +129,12 @@ jobs:
               find venv -maxdepth 3 -type f -name activate -print
               exit 1
             fi
-            poetry install
+            if [ "$RUNNER_OS" != "Windows" ]; then
+              poetry install
+            fi
+            echo "::group::make build"
             make build PYTHON=python SKIP_WEBUI=${{ matrix.skip_webui }} SKIP_SERVER_RUST=${{ matrix.skip_rust }}
+            echo "::endgroup::"
             pip freeze
 
       - name: Install test dependencies
@@ -178,8 +182,12 @@ jobs:
             find venv -maxdepth 3 -type f -name activate -print
             exit 1
           fi
-          poetry install
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            poetry install
+          fi
+          echo "::group::make package"
           make package PYTHON=python SKIP_SERVER_RUST=${{ matrix.skip_rust }}
+          echo "::endgroup::"
 
       - name: Package dmg
         if: runner.os == 'macOS'
