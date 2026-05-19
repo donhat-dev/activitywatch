@@ -62,6 +62,8 @@ $baseArgs.Add("PYTHON=$Python")
 $baseArgs.Add("POETRY=$Poetry")
 if ($SkipServerRust) { $baseArgs.Add("SKIP_SERVER_RUST=true") }
 if ($TauriWatchers)  { $baseArgs.Add("TAURI_WATCHERS=$TauriWatchers") }
+if ($env:TAURI_BUNDLES) { $baseArgs.Add("TAURI_BUNDLES=$($env:TAURI_BUNDLES)") }
+if ($env:TAURI_NO_BUNDLE) { $baseArgs.Add("TAURI_NO_BUNDLE=$($env:TAURI_NO_BUNDLE)") }
 
 function Invoke-Make([string]$target) {
     $all = @($target) + $baseArgs

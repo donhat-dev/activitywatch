@@ -116,6 +116,7 @@ jobs:
           python -m pip install poetry==1.4.2
 
       - name: Build
+        if: runner.os != 'Windows'
         uses: nick-fields/retry@v4
         with:
           timeout_minutes: 60
@@ -177,7 +178,11 @@ jobs:
             make test PYTHON=python SKIP_SERVER_RUST=${{ matrix.skip_rust }}
 
       - name: Package
+        timeout-minutes: 120
         run: |
+          if [ ! -d venv ]; then
+            python -m venv venv
+          fi
           if [ -f venv/bin/activate ]; then
             source venv/bin/activate
           elif [ -f venv/Scripts/activate ]; then
@@ -187,12 +192,14 @@ jobs:
             find venv -maxdepth 3 -type f -name activate -print
             exit 1
           fi
-          if [ "$RUNNER_OS" != "Windows" ]; then
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            pwsh -NoProfile -File scripts/build-tauri-win.ps1 -Python python -Poetry poetry
+          else
             poetry install
+            echo "::group::make package"
+            make package PYTHON=python SKIP_SERVER_RUST=${{ matrix.skip_rust }}
+            echo "::endgroup::"
           fi
-          echo "::group::make package"
-          make package PYTHON=python SKIP_SERVER_RUST=${{ matrix.skip_rust }}
-          echo "::endgroup::"
 
       - name: Package dmg
         if: runner.os == 'macOS'
