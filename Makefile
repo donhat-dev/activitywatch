@@ -7,7 +7,7 @@
 #
 # We recommend creating and activating a Python virtualenv before building.
 # Instructions on how to do this can be found in the guide linked above.
-.PHONY: build build-submodules install-tauri-python-modules install test clean clean_all package package-win package-bundle-win package-installer-win install-python-modules-win package-watchers-win package-installer-win-quick package-win-no-rust package-dmg-unsigned
+.PHONY: build build-submodules install-tauri-python-modules install test clean clean_all package package-win package-bundle-win package-installer-win install-python-modules-win package-watchers-win package-installer-win-quick package-win-no-rust package-dmg-unsigned package-tauri-win package-tauri-bundle-win package-tauri-installer-win
 
 PYTHON ?= python3
 
@@ -26,7 +26,13 @@ CUSTOM_WATCHERS ?= aw-watcher-screenshot-mini
 CUSTOM_RUST_WATCHERS ?=
 
 ifeq ($(TAURI_BUILD),true)
-	SUBMODULES := aw-core aw-client aw-server aw-server-rust $(TAURI_WATCHERS) aw-tauri
+	# aw-server (Python) not needed on Windows Tauri builds - uses aw-server-rust instead.
+	# aw-server/Makefile uses Unix-only commands (mkdir -p, rm -rf) that fail on Windows cmd.
+	ifeq ($(HOST_OS),Windows)
+		SUBMODULES := aw-core aw-client aw-server-rust $(TAURI_WATCHERS) aw-tauri
+	else
+		SUBMODULES := aw-core aw-client aw-server aw-server-rust $(TAURI_WATCHERS) aw-tauri
+	endif
 	# Include awatcher on Linux (Wayland-compatible window watcher)
 	ifeq ($(HOST_OS),Linux)
 		SUBMODULES := $(SUBMODULES) awatcher
@@ -91,11 +97,13 @@ ifeq ($(TAURI_BUILD),true)
 	$(MAKE) install-tauri-python-modules PYTHON=$(PYTHON)
 endif
 	$(MAKE) build-submodules SKIP_WEBUI=$(SKIP_WEBUI)
+ifneq ($(TAURI_BUILD),true)
 #   The below is needed due to: https://github.com/ActivityWatch/activitywatch/issues/173
 	$(MAKE) --directory=aw-client build PYTHON=$(PYTHON) POETRY=$(POETRY)
 	$(MAKE) --directory=aw-core build PYTHON=$(PYTHON) POETRY=$(POETRY)
 #	Needed to ensure that the server has the correct version set
 	$(PYTHON) -c "import aw_server; print(aw_server.__version__)"
+endif
 
 install-tauri-python-modules: aw-core/.git aw-client/.git
 	$(PYTHON) -m pip install -e ./aw-core -e ./aw-client
@@ -103,7 +111,7 @@ install-tauri-python-modules: aw-core/.git aw-client/.git
 
 ifeq ($(OS),Windows_NT)
 build-submodules:
-	powershell -NoProfile -Command "$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); $$tauriWatchers = @{}; '$(TAURI_WATCHERS)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $$tauriWatchers[$$_] = $$true }; foreach ($$m in $$mods) { Write-Host \"Building $$m\"; if ($$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" aw-sync \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" } elseif ($$m -eq 'aw-tauri' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" \"TAURI_WATCHERS=$(TAURI_WATCHERS)\" } else { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" }; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; if ('$(TAURI_BUILD)' -eq 'true' -and $$tauriWatchers.ContainsKey($$m)) { Write-Host \"Packaging $$m for Tauri\"; & '$(MAKE)' \"--directory=$$m\" package \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\"; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE } } }"
+	powershell -NoProfile -Command "$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); $$tauriWatchers = @{}; '$(TAURI_WATCHERS)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $$tauriWatchers[$$_] = $$true }; foreach ($$m in $$mods) { Write-Host \"Building $$m\"; if ($$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { Push-Location $$m; cargo build --release --bin aw-sync; if ($$LASTEXITCODE -ne 0) { Pop-Location; exit $$LASTEXITCODE }; Pop-Location } elseif ($$m -eq 'aw-tauri' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" \"TAURI_WATCHERS=$(TAURI_WATCHERS)\" } else { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" }; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; if ('$(TAURI_BUILD)' -eq 'true' -and $$tauriWatchers.ContainsKey($$m)) { Write-Host \"Packaging $$m for Tauri\"; & '$(MAKE)' \"--directory=$$m\" package \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\"; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE } } }"
 else
 build-submodules:
 	@for module in $(SUBMODULES); do \
@@ -244,7 +252,11 @@ package-dmg-unsigned: dist/ActivityWatch.dmg
 	@echo "Built unsigned DMG: dist/activitywatch-$(VERSION)-macos-$(ARCH)-unsigned.dmg"
 
 ifeq ($(OS),Windows_NT)
+ifeq ($(TAURI_BUILD),true)
+package: package-tauri-win
+else
 package: package-win
+endif
 
 package-win: package-bundle-win package-installer-win
 
@@ -289,6 +301,19 @@ package-installer-win-quick:
 package-win-no-rust:
 	$(MAKE) package-bundle-win SKIP_SERVER_RUST=true CUSTOM_RUST_WATCHERS=
 	$(MAKE) package-installer-win-quick
+
+package-tauri-win: package-tauri-bundle-win package-tauri-installer-win
+
+package-tauri-bundle-win:
+	@echo [stage] package-tauri-bundle-win begin
+	if exist dist\activitywatch rmdir /s /q dist\activitywatch
+	mkdir dist\activitywatch
+	powershell -NoProfile -Command "$$tauriExe = 'aw-tauri\src-tauri\target\release\aw-tauri.exe'; if (-not (Test-Path $$tauriExe)) { throw 'aw-tauri.exe not found. Run make build TAURI_BUILD=true first.' }; Copy-Item $$tauriExe 'dist\activitywatch\aw-tauri.exe' -Force; Write-Host 'Copied aw-tauri.exe'; $$watchers = '$(TAURI_WATCHERS)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); foreach ($$w in $$watchers) { $$src = Join-Path $$w ('dist/' + $$w); if (-not (Test-Path $$src)) { throw ($$w + ' dist not found at ' + $$src + '. Run make build TAURI_BUILD=true first.') }; $$dst = Join-Path 'dist\activitywatch' $$w; New-Item -ItemType Directory -Force $$dst | Out-Null; Copy-Item (Join-Path $$src '*') $$dst -Recurse -Force; $$cfgExample = Join-Path $$w 'config.toml.example'; if (Test-Path $$cfgExample) { Copy-Item $$cfgExample (Join-Path $$dst 'config.toml.example') -Force }; Write-Host ('Copied watcher ' + $$w) }; if ('$(SKIP_SERVER_RUST)' -ne 'true') { $$awSync = 'aw-server-rust\target\release\aw-sync.exe'; if (Test-Path $$awSync) { New-Item -ItemType Directory -Force 'dist\activitywatch\aw-server-rust' | Out-Null; Copy-Item $$awSync 'dist\activitywatch\aw-server-rust\aw-sync.exe' -Force; Write-Host 'Copied aw-sync.exe' } else { Write-Host 'Warning: aw-sync.exe not found, skipping' } }"
+	@echo [stage] package-tauri-bundle-win end
+
+package-tauri-installer-win: package-tauri-bundle-win
+	powershell -NoProfile -Command "$$line = Get-Content 'aw-server/aw_server/__about__.py' | Where-Object { $$_ -match '__version__\s*=' } | Select-Object -First 1; if (-not $$line) { throw 'Could not determine version' }; $$version = ($$line.Split('=')[1]).Trim().Trim('\"'); if ($$version.StartsWith('v')) { $$version = $$version.Substring(1) }; $$env:AW_VERSION = $$version; $$iscc = '$(ISCC)'; if ($$iscc -eq 'iscc' -and (Test-Path '$(ISCC_FALLBACK)')) { $$iscc = '$(ISCC_FALLBACK)' }; if (-not (Test-Path $$iscc)) { throw ('ISCC not found at ' + $$iscc) }; $$proc = Start-Process -FilePath $$iscc -ArgumentList 'scripts/package/aw-tauri.iss' -NoNewWindow -Wait -PassThru; exit $$proc.ExitCode"
+
 else
 package:
 	rm -rf dist
