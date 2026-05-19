@@ -111,7 +111,7 @@ install-tauri-python-modules: aw-core/.git aw-client/.git
 
 ifeq ($(OS),Windows_NT)
 build-submodules:
-	powershell -NoProfile -Command "$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); $$tauriWatchers = @{}; '$(TAURI_WATCHERS)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $$tauriWatchers[$$_] = $$true }; foreach ($$m in $$mods) { Write-Host \"Building $$m\"; if ($$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { Push-Location $$m; cargo build --release --bin aw-sync; if ($$LASTEXITCODE -ne 0) { Pop-Location; exit $$LASTEXITCODE }; Pop-Location } elseif ($$m -eq 'aw-tauri' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" \"TAURI_WATCHERS=$(TAURI_WATCHERS)\" } else { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" }; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; if ('$(TAURI_BUILD)' -eq 'true' -and $$tauriWatchers.ContainsKey($$m)) { Write-Host \"Packaging $$m for Tauri\"; & '$(MAKE)' \"--directory=$$m\" package \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\"; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE } } }"
+	powershell -NoProfile -Command "$$mods = '$(SUBMODULES)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries); $$tauriWatchers = @{}; '$(TAURI_WATCHERS)'.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $$tauriWatchers[$$_] = $$true }; foreach ($$m in $$mods) { Write-Host \"Building $$m\"; if ($$m -eq 'aw-server-rust' -and '$(TAURI_BUILD)' -eq 'true') { Push-Location $$m; cargo build --release --bin aw-sync; if ($$LASTEXITCODE -ne 0) { Pop-Location; exit $$LASTEXITCODE }; Pop-Location } elseif ($$m -eq 'aw-tauri' -and '$(TAURI_BUILD)' -eq 'true') { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" \"TAURI_WATCHERS=$(TAURI_WATCHERS)\" \"TAURI_BUNDLES=$(TAURI_BUNDLES)\" \"TAURI_NO_BUNDLE=$(TAURI_NO_BUNDLE)\" } else { & '$(MAKE)' \"--directory=$$m\" build \"SKIP_WEBUI=$(SKIP_WEBUI)\" \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\" }; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; if ('$(TAURI_BUILD)' -eq 'true' -and $$tauriWatchers.ContainsKey($$m)) { Write-Host \"Packaging $$m for Tauri\"; & '$(MAKE)' \"--directory=$$m\" package \"PYTHON=$(PYTHON)\" \"POETRY=$(POETRY)\"; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE } } }"
 else
 build-submodules:
 	@for module in $(SUBMODULES); do \
@@ -119,7 +119,7 @@ build-submodules:
 		if [ "$$module" = "aw-server-rust" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
 			$(MAKE) --directory=$$module aw-sync SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module aw-sync"; exit 2; }; \
 		elif [ "$$module" = "aw-tauri" ] && [ "$(TAURI_BUILD)" = "true" ]; then \
-			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" TAURI_BUNDLES="$(TAURI_BUNDLES)" || { echo "Error in $$module build"; exit 2; }; \
+			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" TAURI_BUNDLES="$(TAURI_BUNDLES)" TAURI_NO_BUNDLE="$(TAURI_NO_BUNDLE)" || { echo "Error in $$module build"; exit 2; }; \
 		else \
 			$(MAKE) --directory=$$module build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) || { echo "Error in $$module build"; exit 2; }; \
 		fi; \
@@ -337,7 +337,7 @@ ifeq ($(TAURI_BUILD),true)
 	cp aw-server-rust/target/$(targetdir)/aw-sync dist/activitywatch/aw-server-rust/aw-sync
 # Copy aw-tauri binary for macOS app bundling. Tauri may place the executable
 # directly in target/<profile> or inside a generated .app bundle.
-	$(MAKE) --directory=aw-tauri build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" TAURI_BUNDLES="$(TAURI_BUNDLES)"
+	$(MAKE) --directory=aw-tauri build SKIP_WEBUI=$(SKIP_WEBUI) PYTHON=$(PYTHON) POETRY=$(POETRY) TAURI_WATCHERS="$(TAURI_WATCHERS)" TAURI_BUNDLES="$(TAURI_BUNDLES)" TAURI_NO_BUNDLE="$(TAURI_NO_BUNDLE)"
 	mkdir -p dist/activitywatch; \
 	aw_tauri_bin="$$(find aw-tauri/src-tauri/target/$(targetdir) -type f -perm -111 \( -name aw-tauri -o -path "*/Contents/MacOS/*" \) 2>/dev/null | head -1)"; \
 	if [ -n "$$aw_tauri_bin" ]; then \
