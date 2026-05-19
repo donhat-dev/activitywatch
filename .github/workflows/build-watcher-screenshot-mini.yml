@@ -1,20 +1,6 @@
 name: Build screenshot watcher portable
 
 on:
-  push:
-    branches: [ master ]
-    paths:
-      - '.github/workflows/build-watcher-screenshot-mini.yml'
-      - 'aw-watcher-screenshot-mini/**'
-      - 'aw-client/**'
-      - 'aw-core/**'
-  pull_request:
-    branches: [ master ]
-    paths:
-      - '.github/workflows/build-watcher-screenshot-mini.yml'
-      - 'aw-watcher-screenshot-mini/**'
-      - 'aw-client/**'
-      - 'aw-core/**'
   workflow_dispatch:
 
 jobs:

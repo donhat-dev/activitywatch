@@ -2,10 +2,6 @@ name: Diagram
 
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - diagram
-     #- master  # protected branch, can't push updated diagram to
 
 jobs:
   update-diagram:

@@ -36,6 +36,7 @@ jobs:
         os:
           [
             macos-latest,
+            windows-latest,
           ]
         python_version: [3.9]
         node_version: [24]
@@ -107,7 +108,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
-            choco install innosetup
+            choco install innosetup make -y
           fi
           python -m pip install poetry==1.4.2
 
